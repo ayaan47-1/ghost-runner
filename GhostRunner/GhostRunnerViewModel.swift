@@ -35,8 +35,8 @@ final class GhostRunnerViewModel {
     private var playbackDistance = 0.0
     private var routePath = RoutePath(points: [])
     private var routeTimestamps: [TimeInterval]?
-    private var selectionGeneration = SelectionGeneration()
-    private var routePresentationGeneration = SelectionGeneration()
+    private var loadGeneration = LoadGeneration()
+    private var routePresentationGeneration = LoadGeneration()
 
     init(healthKitManager: HealthKitManager = HealthKitManager()) {
         self.healthKitManager = healthKitManager
@@ -104,10 +104,14 @@ final class GhostRunnerViewModel {
 
     func load() async {
         guard loadState == .idle else { return }
+        let generation = loadGeneration.begin()
         loadState = .loading
         do {
             try await healthKitManager.requestAuthorization()
-            recentRuns = try await healthKitManager.fetchRecentRuns()
+            guard loadGeneration.isCurrent(generation) else { return }
+            let runs = try await healthKitManager.fetchRecentRuns()
+            guard loadGeneration.isCurrent(generation) else { return }
+            recentRuns = runs
             guard let first = recentRuns.first else {
                 loadState = .empty(
                     title: "No Readable Runs",
@@ -122,17 +126,21 @@ final class GhostRunnerViewModel {
                 let workout = recentRuns[candidateIndex]
                 do {
                     let route = try await healthKitManager.fetchRouteData(for: workout)
+                    guard loadGeneration.isCurrent(generation) else { return }
                     guard selection.recordCurrent(hasRoute: true) == candidateIndex else { continue }
                     present(route: route, for: workout)
                     return
                 } catch HealthKitManagerError.noRoute {
+                    guard loadGeneration.isCurrent(generation) else { return }
                     _ = selection.recordCurrent(hasRoute: false)
                 } catch {
+                    guard loadGeneration.isCurrent(generation) else { return }
                     if firstError == nil { firstError = error }
                     _ = selection.recordCurrent(hasRoute: false)
                 }
             }
 
+            guard loadGeneration.isCurrent(generation) else { return }
             selectedWorkout = first
             if let firstError {
                 loadState = .failed(firstError.localizedDescription)
@@ -143,12 +151,13 @@ final class GhostRunnerViewModel {
                 )
             }
         } catch {
+            guard loadGeneration.isCurrent(generation) else { return }
             loadState = .failed(error.localizedDescription)
         }
     }
 
     func selectWorkout(_ workout: HKWorkout) async {
-        let generation = selectionGeneration.begin()
+        let generation = loadGeneration.begin()
         stopPlayback()
         selectedWorkout = workout
         routeCoordinates = []
@@ -159,21 +168,20 @@ final class GhostRunnerViewModel {
         ghostCoordinateIndex = 0
         playbackDistance = 0
         selectedSplitIndex = nil
-        routePresentationID = routePresentationGeneration.begin()
         loadState = .loading
 
         do {
             let route = try await healthKitManager.fetchRouteData(for: workout)
-            guard selectionGeneration.isCurrent(generation) else { return }
+            guard loadGeneration.isCurrent(generation) else { return }
             present(route: route, for: workout)
         } catch HealthKitManagerError.noRoute {
-            guard selectionGeneration.isCurrent(generation) else { return }
+            guard loadGeneration.isCurrent(generation) else { return }
             loadState = .empty(
                 title: "No Route",
                 message: HealthKitManagerError.noRoute.localizedDescription
             )
         } catch {
-            guard selectionGeneration.isCurrent(generation) else { return }
+            guard loadGeneration.isCurrent(generation) else { return }
             loadState = .failed(error.localizedDescription)
         }
     }
@@ -184,7 +192,7 @@ final class GhostRunnerViewModel {
     }
 
     func retry() async {
-        _ = selectionGeneration.begin()
+        _ = loadGeneration.begin()
         stopPlayback()
         recentRuns = []
         selectedWorkout = nil
@@ -279,6 +287,7 @@ final class GhostRunnerViewModel {
         ghostCoordinateIndex = 0
         playbackDistance = 0
         selectedSplitIndex = nil
+        routePresentationID = routePresentationGeneration.begin()
         loadState = .ready
         isWorkoutPickerPresented = false
     }

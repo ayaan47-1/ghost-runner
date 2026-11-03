@@ -172,13 +172,22 @@ final class GhostRunnerLogicTests: XCTestCase {
         )
     }
 
-    func testSelectionGenerationRejectsSupersededLoad() {
-        var generation = SelectionGeneration()
+    func testLoadGenerationRejectsSupersededLoad() {
+        var generation = LoadGeneration()
         let first = generation.begin()
         let second = generation.begin()
 
         XCTAssertFalse(generation.isCurrent(first))
         XCTAssertTrue(generation.isCurrent(second))
+    }
+
+    func testAutomaticLoadCannotPublishAfterExplicitSelectionStarts() {
+        var generation = LoadGeneration()
+        let automaticRetry = generation.begin()
+        let explicitSelection = generation.begin()
+
+        XCTAssertFalse(generation.isCurrent(automaticRetry))
+        XCTAssertTrue(generation.isCurrent(explicitSelection))
     }
 
     func testInitialRouteSelectionSkipsNewerRunsWithoutRoutes() {

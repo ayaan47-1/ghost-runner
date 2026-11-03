@@ -280,7 +280,7 @@ public enum ReplayLayoutPolicy {
     }
 }
 
-public struct SelectionGeneration: Sendable {
+public struct LoadGeneration: Sendable {
     private var value: UInt64 = 0
 
     public init() {}
