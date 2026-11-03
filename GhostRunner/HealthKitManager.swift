@@ -46,7 +46,7 @@ final class HealthKitManager {
             throw HealthKitManagerError.healthDataUnavailable
         }
 
-        try await withCheckedThrowingContinuation { continuation in
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             healthStore.requestAuthorization(toShare: [], read: [workout, route, heartRate]) { success, error in
                 Task { @MainActor in
                     if let error {
@@ -63,7 +63,7 @@ final class HealthKitManager {
 
     func fetchRecentRuns(limit: Int = 10) async throws -> [HKWorkout] {
         let safeLimit = max(1, limit)
-        return try await withCheckedThrowingContinuation { continuation in
+        return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<[HKWorkout], Error>) in
             let predicate = HKQuery.predicateForWorkouts(with: .running)
             let sort = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: false)
             let query = HKSampleQuery(
@@ -107,7 +107,7 @@ final class HealthKitManager {
     }
 
     private func fetchRoutes(for workout: HKWorkout) async throws -> [HKWorkoutRoute] {
-        try await withCheckedThrowingContinuation { continuation in
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<[HKWorkoutRoute], Error>) in
             let predicate = HKQuery.predicateForObjects(from: workout)
             let query = HKSampleQuery(
                 sampleType: HKSeriesType.workoutRoute(),
@@ -128,7 +128,7 @@ final class HealthKitManager {
     }
 
     private func fetchLocations(for route: HKWorkoutRoute) async throws -> [RouteLocationSample] {
-        try await withCheckedThrowingContinuation { continuation in
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<[RouteLocationSample], Error>) in
             var allSamples: [RouteLocationSample] = []
             var isFinished = false
             let query = HKWorkoutRouteQuery(route: route) { _, locations, done, error in

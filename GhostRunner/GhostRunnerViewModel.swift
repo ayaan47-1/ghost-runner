@@ -34,10 +34,6 @@ final class GhostRunnerViewModel {
         self.healthKitManager = healthKitManager
     }
 
-    deinit {
-        playbackTask?.cancel()
-    }
-
     var scrubberValue: Double {
         get { Double(ghostCoordinateIndex) }
         set { scrub(to: newValue) }
@@ -135,12 +131,12 @@ final class GhostRunnerViewModel {
         isPlaying = true
         playbackTask?.cancel()
         playbackTask = Task { @MainActor [weak self] in
-            guard let self else { return }
             let clock = ContinuousClock()
             var previous = clock.now
 
-            while !Task.isCancelled, self.isPlaying {
+            while !Task.isCancelled {
                 try? await Task.sleep(for: .milliseconds(33))
+                guard let self, self.isPlaying else { return }
                 let now = clock.now
                 let elapsed = previous.duration(to: now).seconds
                 previous = now
