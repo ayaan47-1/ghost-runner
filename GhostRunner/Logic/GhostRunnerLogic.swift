@@ -257,6 +257,28 @@ public struct SelectionGeneration: Sendable {
     }
 }
 
+public struct InitialRouteSelection: Sendable {
+    private let candidateCount: Int
+    public private(set) var currentCandidateIndex: Int?
+
+    public init(candidateCount: Int) {
+        self.candidateCount = max(0, candidateCount)
+        currentCandidateIndex = candidateCount > 0 ? 0 : nil
+    }
+
+    public mutating func recordCurrent(hasRoute: Bool) -> Int? {
+        guard let currentCandidateIndex else { return nil }
+        if hasRoute {
+            self.currentCandidateIndex = nil
+            return currentCandidateIndex
+        }
+
+        let next = currentCandidateIndex + 1
+        self.currentCandidateIndex = next < candidateCount ? next : nil
+        return nil
+    }
+}
+
 private extension Collection where Element == Double, Index == Int {
     func partitioningIndex(where predicate: (Double) -> Bool) -> Int {
         var lower = startIndex

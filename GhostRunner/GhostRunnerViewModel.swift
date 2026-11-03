@@ -103,7 +103,33 @@ final class GhostRunnerViewModel {
                 )
                 return
             }
-            await selectWorkout(first)
+
+            var selection = InitialRouteSelection(candidateCount: recentRuns.count)
+            var firstError: Error?
+            while let candidateIndex = selection.currentCandidateIndex {
+                let workout = recentRuns[candidateIndex]
+                do {
+                    let route = try await healthKitManager.fetchRouteData(for: workout)
+                    guard selection.recordCurrent(hasRoute: true) == candidateIndex else { continue }
+                    present(route: route, for: workout)
+                    return
+                } catch HealthKitManagerError.noRoute {
+                    _ = selection.recordCurrent(hasRoute: false)
+                } catch {
+                    if firstError == nil { firstError = error }
+                    _ = selection.recordCurrent(hasRoute: false)
+                }
+            }
+
+            selectedWorkout = first
+            if let firstError {
+                loadState = .failed(firstError.localizedDescription)
+            } else {
+                loadState = .empty(
+                    title: "No Route",
+                    message: HealthKitManagerError.noRoute.localizedDescription
+                )
+            }
         } catch {
             loadState = .failed(error.localizedDescription)
         }
@@ -125,13 +151,7 @@ final class GhostRunnerViewModel {
         do {
             let route = try await healthKitManager.fetchRouteData(for: workout)
             guard selectionGeneration.isCurrent(generation) else { return }
-            routeCoordinates = route.coordinates
-            routePath = route.path
-            routeTimestamps = route.timestamps
-            ghostCoordinate = route.coordinates.first
-            elevationGainMetres = route.elevationGainMetres
-            loadState = .ready
-            isWorkoutPickerPresented = false
+            present(route: route, for: workout)
         } catch HealthKitManagerError.noRoute {
             guard selectionGeneration.isCurrent(generation) else { return }
             loadState = .empty(
@@ -208,6 +228,19 @@ final class GhostRunnerViewModel {
             return
         }
         ghostCoordinate = CLLocationCoordinate2D(latitude: point.latitude, longitude: point.longitude)
+    }
+
+    private func present(route: WorkoutRouteData, for workout: HKWorkout) {
+        selectedWorkout = workout
+        routeCoordinates = route.coordinates
+        routePath = route.path
+        routeTimestamps = route.timestamps
+        ghostCoordinate = route.coordinates.first
+        elevationGainMetres = route.elevationGainMetres
+        ghostCoordinateIndex = 0
+        playbackDistance = 0
+        loadState = .ready
+        isWorkoutPickerPresented = false
     }
 }
 

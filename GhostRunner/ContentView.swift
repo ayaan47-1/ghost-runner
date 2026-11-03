@@ -35,7 +35,15 @@ struct ContentView: View {
     }
 
     private func emptyState(title: String, message: String, systemImage: String) -> some View {
-        ContentUnavailableView(title, systemImage: systemImage, description: Text(message))
+        VStack(spacing: 16) {
+            ContentUnavailableView(title, systemImage: systemImage, description: Text(message))
+            if !viewModel.recentRuns.isEmpty {
+                Button("Choose Another Run") {
+                    viewModel.isWorkoutPickerPresented = true
+                }
+                .buttonStyle(.borderedProminent)
+            }
+        }
             .padding(24)
             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 24))
             .padding()

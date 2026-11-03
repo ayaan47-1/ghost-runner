@@ -153,6 +153,20 @@ final class GhostRunnerLogicTests: XCTestCase {
         XCTAssertTrue(generation.isCurrent(second))
     }
 
+    func testInitialRouteSelectionSkipsNewerRunsWithoutRoutes() {
+        var selection = InitialRouteSelection(candidateCount: 4)
+
+        XCTAssertEqual(selection.currentCandidateIndex, 0)
+        XCTAssertNil(selection.recordCurrent(hasRoute: false))
+        XCTAssertEqual(selection.currentCandidateIndex, 1)
+        XCTAssertNil(selection.recordCurrent(hasRoute: false))
+        XCTAssertEqual(selection.currentCandidateIndex, 2)
+        XCTAssertEqual(selection.recordCurrent(hasRoute: true), 2)
+        XCTAssertNil(selection.currentCandidateIndex)
+
+        XCTAssertNil(InitialRouteSelection(candidateCount: 0).currentCandidateIndex)
+    }
+
     func testCurrentSplitUsesRealTimestampsForSplitIndexAndPace() {
         let split = SplitMath.current(
             atDistance: 1_500,

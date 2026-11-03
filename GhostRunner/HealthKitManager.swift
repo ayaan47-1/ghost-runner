@@ -55,7 +55,7 @@ enum HealthKitManagerError: LocalizedError {
         case .healthDataUnavailable:
             return "Health data is unavailable or restricted on this device."
         case .noRoute:
-            return "This workout has no outdoor GPS route. Indoor and treadmill runs usually do not include one."
+            return "This workout has no outdoor GPS route. Indoor and treadmill runs usually do not include one. Also check Settings > Health > Ghost Runner > Workout Routes is on."
         }
     }
 }
