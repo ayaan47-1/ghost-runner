@@ -149,6 +149,33 @@ public enum RouteMath {
         }.map(\.element)
     }
 
+    public static func adjustedForViewport(
+        _ region: RouteRegion,
+        viewportWidth: Double,
+        viewportHeight: Double,
+        topOcclusion: Double,
+        bottomOcclusion: Double,
+        horizontalInset: Double
+    ) -> RouteRegion {
+        let width = max(1, viewportWidth)
+        let height = max(1, viewportHeight)
+        let availableWidth = max(1, width - max(0, horizontalInset) * 2)
+        let availableHeight = max(1, height - max(0, topOcclusion) - max(0, bottomOcclusion))
+        let latitudeDelta = min(180, region.latitudeDelta * height / availableHeight)
+        let longitudeDelta = min(360, region.longitudeDelta * width / availableWidth)
+        let visibleCenterY = max(0, topOcclusion) + availableHeight / 2
+        let verticalOffset = (visibleCenterY - height / 2) / height
+
+        return RouteRegion(
+            center: GeoPoint(
+                latitude: min(90, max(-90, region.center.latitude + verticalOffset * latitudeDelta)),
+                longitude: region.center.longitude
+            ),
+            latitudeDelta: latitudeDelta,
+            longitudeDelta: longitudeDelta
+        )
+    }
+
     public static func distance(from start: GeoPoint, to end: GeoPoint) -> Double {
         let latitude1 = start.latitude * .pi / 180
         let latitude2 = end.latitude * .pi / 180

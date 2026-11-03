@@ -46,6 +46,28 @@ final class GhostRunnerLogicTests: XCTestCase {
         XCTAssertEqual(region.longitudeDelta, 0.25, accuracy: 0.000_001)
     }
 
+    func testRouteRegionAccountsForReplayOverlays() {
+        let region = RouteRegion(
+            center: GeoPoint(latitude: 10, longitude: 20),
+            latitudeDelta: 1,
+            longitudeDelta: 2
+        )
+
+        let adjusted = RouteMath.adjustedForViewport(
+            region,
+            viewportWidth: 400,
+            viewportHeight: 800,
+            topOcclusion: 150,
+            bottomOcclusion: 250,
+            horizontalInset: 20
+        )
+
+        XCTAssertEqual(adjusted.latitudeDelta, 2, accuracy: 0.000_001)
+        XCTAssertEqual(adjusted.longitudeDelta, 2.222_222, accuracy: 0.000_001)
+        XCTAssertEqual(adjusted.center.latitude, 9.875, accuracy: 0.000_001)
+        XCTAssertEqual(adjusted.center.longitude, 20, accuracy: 0.000_001)
+    }
+
     func testRoutePartsAndSamplesMergeChronologically() {
         let parts = [
             [
