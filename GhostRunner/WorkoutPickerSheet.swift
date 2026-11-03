@@ -9,7 +9,17 @@ struct WorkoutPickerSheet: View {
 
     var body: some View {
         NavigationStack {
-            Group {
+            VStack(spacing: 0) {
+                HStack {
+                    Text("Recent Runs")
+                        .font(.system(size: 28, weight: .bold))
+                    Spacer()
+                    Button("Close") { dismiss() }
+                        .frame(minWidth: 44, minHeight: 44)
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 12)
+
                 if workouts.isEmpty {
                     ContentUnavailableView(
                         "No Runs Found",
@@ -17,7 +27,8 @@ struct WorkoutPickerSheet: View {
                         description: Text("Allow Health access or record an outdoor run first.")
                     )
                 } else {
-                    List(workouts, id: \.uuid) { workout in
+                    List(workouts.sorted { $0.startDate > $1.startDate }, id: \.uuid) { workout in
+                        let isSelected = workout.uuid == selectedWorkout?.uuid
                         Button {
                             onSelect(workout.uuid)
                             dismiss()
@@ -25,9 +36,9 @@ struct WorkoutPickerSheet: View {
                             HStack {
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(workout.startDate, format: .dateTime.weekday(.abbreviated).month().day())
-                                        .font(.headline)
+                                        .font(.system(size: 16, weight: .semibold))
                                     Text(workout.startDate, format: .dateTime.hour().minute())
-                                        .font(.subheadline)
+                                        .font(.system(size: 13))
                                         .foregroundStyle(.secondary)
                                 }
                                 Spacer()
@@ -36,25 +47,28 @@ struct WorkoutPickerSheet: View {
                                         metres: workout.totalDistance?.doubleValue(for: .meter()) ?? 0,
                                         units: Locale.current.measurementSystem == .metric ? .metric : .imperial
                                     ))
+                                    .font(.system(size: 17, weight: .semibold, design: .rounded))
+                                    .monospacedDigit()
                                     Text(RunFormatting.duration(seconds: workout.duration))
+                                        .font(.system(size: 13))
                                         .foregroundStyle(.secondary)
                                 }
-                                if workout.uuid == selectedWorkout?.uuid {
+                                if isSelected {
                                     Image(systemName: "checkmark.circle.fill")
-                                        .foregroundStyle(.blue)
+                                        .foregroundStyle(GhostRunnerPalette.actionBlue)
                                 }
                             }
+                            .frame(minHeight: 72)
                         }
                         .buttonStyle(.plain)
+                        .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20))
+                        .accessibilityElement(children: .combine)
+                        .accessibilityAddTraits(isSelected ? .isSelected : [])
                     }
-                }
-            }
-            .navigationTitle("Recent Runs")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") { dismiss() }
+                    .listStyle(.plain)
                 }
             }
         }
+        .presentationDetents([.medium, .large])
     }
 }
