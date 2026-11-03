@@ -255,6 +255,47 @@ final class GhostRunnerLogicTests: XCTestCase {
         XCTAssertEqual(longPause.secondsPerKilometre, 320)
     }
 
+    func testCurrentSplitExcludesPauseAtSplitBoundaryFromCurrentPace() {
+        let split = SplitMath.current(
+            atDistance: 1_500,
+            cumulativeDistances: [0, 1_000, 1_000, 2_000],
+            timestamps: [0, 300, 600, 900],
+            units: .metric,
+            averageSecondsPerKilometre: 450
+        )
+
+        XCTAssertEqual(split.index, 2)
+        XCTAssertEqual(split.source, .actual)
+        XCTAssertEqual(split.secondsPerKilometre, 300, accuracy: 0.000_001)
+    }
+
+    func testCurrentSplitExcludesPauseInMiddleOfSplit() {
+        let split = SplitMath.current(
+            atDistance: 750,
+            cumulativeDistances: [0, 500, 500, 1_000],
+            timestamps: [0, 150, 450, 600],
+            units: .metric,
+            averageSecondsPerKilometre: 600
+        )
+
+        XCTAssertEqual(split.source, .actual)
+        XCTAssertEqual(split.secondsPerKilometre, 300, accuracy: 0.000_001)
+    }
+
+    func testCurrentSplitExcludesPauseAtEndOfCompletedSplit() {
+        let split = SplitMath.current(
+            atDistance: 1_000,
+            cumulativeDistances: [0, 1_000, 1_000, 2_000],
+            timestamps: [0, 300, 600, 900],
+            units: .metric,
+            averageSecondsPerKilometre: 450
+        )
+
+        XCTAssertEqual(split.index, 2)
+        XCTAssertEqual(split.source, .previous)
+        XCTAssertEqual(split.secondsPerKilometre, 300, accuracy: 0.000_001)
+    }
+
     func testScrubberClampsAndRoundsToCoordinate() {
         XCTAssertEqual(PlaybackMath.scrubbedIndex(for: -4, routeCount: 20), 0)
         XCTAssertEqual(PlaybackMath.scrubbedIndex(for: 6.6, routeCount: 20), 7)

@@ -302,6 +302,8 @@ public enum SplitMath {
     private static let minimumSampleDistance = 20.0
     private static let minimumCurrentSplitDistance = 100.0
     private static let rollingWindowDistance = 200.0
+    private static let stationaryDistanceTolerance = 1.0
+    private static let minimumMovingSpeed = 0.5
     private static let plausibleSecondsPerKilometre = 120.0...1_800.0
 
     public static func current(
@@ -374,45 +376,32 @@ public enum SplitMath {
         cumulativeDistances: [Double],
         timestamps: [TimeInterval]
     ) -> Double? {
-        let travelled = endDistance - startDistance
-        guard travelled > 0,
-              let startTime = interpolatedTime(
-                  atDistance: startDistance,
-                  cumulativeDistances: cumulativeDistances,
-                  timestamps: timestamps
-              ),
-              let endTime = interpolatedTime(
-                  atDistance: endDistance,
-                  cumulativeDistances: cumulativeDistances,
-                  timestamps: timestamps
-              ) else { return nil }
+        guard endDistance > startDistance else { return nil }
 
-        let elapsed = endTime - startTime
-        guard elapsed > 0 else { return nil }
-        let secondsPerKilometre = elapsed / travelled * 1_000
+        var movingDistance = 0.0
+        var movingTime = 0.0
+        for index in 1..<cumulativeDistances.count {
+            let segmentStart = cumulativeDistances[index - 1]
+            let segmentEnd = cumulativeDistances[index]
+            let segmentDistance = segmentEnd - segmentStart
+            let segmentTime = timestamps[index] - timestamps[index - 1]
+            guard segmentDistance > stationaryDistanceTolerance,
+                  segmentTime > 0,
+                  segmentDistance / segmentTime >= minimumMovingSpeed else { continue }
+
+            let overlapStart = max(startDistance, segmentStart)
+            let overlapEnd = min(endDistance, segmentEnd)
+            let overlapDistance = overlapEnd - overlapStart
+            guard overlapDistance > 0 else { continue }
+
+            movingDistance += overlapDistance
+            movingTime += segmentTime * overlapDistance / segmentDistance
+        }
+
+        guard movingDistance > 0, movingTime > 0 else { return nil }
+        let secondsPerKilometre = movingTime / movingDistance * 1_000
         guard plausibleSecondsPerKilometre.contains(secondsPerKilometre) else { return nil }
         return secondsPerKilometre
-    }
-
-    private static func interpolatedTime(
-        atDistance distance: Double,
-        cumulativeDistances: [Double],
-        timestamps: [TimeInterval]
-    ) -> TimeInterval? {
-        guard let firstDistance = cumulativeDistances.first,
-              let lastDistance = cumulativeDistances.last,
-              distance >= firstDistance,
-              distance <= lastDistance else { return nil }
-
-        let upperIndex = cumulativeDistances.partitioningIndex { $0 >= distance }
-        guard upperIndex < cumulativeDistances.count else { return timestamps.last }
-        guard upperIndex > 0 else { return timestamps.first }
-
-        let lowerIndex = upperIndex - 1
-        let segmentDistance = cumulativeDistances[upperIndex] - cumulativeDistances[lowerIndex]
-        guard segmentDistance > 0 else { return timestamps[upperIndex] }
-        let progress = (distance - cumulativeDistances[lowerIndex]) / segmentDistance
-        return timestamps[lowerIndex] + (timestamps[upperIndex] - timestamps[lowerIndex]) * progress
     }
 
     private static func safeAverage(_ average: Double) -> Double {
