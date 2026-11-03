@@ -28,8 +28,8 @@ struct ContentView: View {
             WorkoutPickerSheet(
                 workouts: viewModel.recentRuns,
                 selectedWorkout: viewModel.selectedWorkout
-            ) { workout in
-                Task { await viewModel.selectWorkout(workout) }
+            ) { workoutID in
+                Task { await viewModel.selectWorkout(id: workoutID) }
             }
         }
     }

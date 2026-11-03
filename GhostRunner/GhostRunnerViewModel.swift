@@ -112,6 +112,11 @@ final class GhostRunnerViewModel {
         }
     }
 
+    func selectWorkout(id: UUID) async {
+        guard let workout = recentRuns.first(where: { $0.uuid == id }) else { return }
+        await selectWorkout(workout)
+    }
+
     func togglePlayback() {
         isPlaying ? stopPlayback() : startPlayback()
     }

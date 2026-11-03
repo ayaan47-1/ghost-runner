@@ -13,6 +13,43 @@ private struct RouteLocationSample: Sendable {
     let hasReliableAltitude: Bool
 }
 
+private final class RouteQueryAccumulator: @unchecked Sendable {
+    private let lock = NSLock()
+    private var samples: [RouteLocationSample] = []
+    private var isFinished = false
+
+    func receive(
+        batch: [RouteLocationSample],
+        done: Bool,
+        error: Error?,
+        continuation: CheckedContinuation<[RouteLocationSample], Error>
+    ) {
+        lock.lock()
+        guard !isFinished else {
+            lock.unlock()
+            return
+        }
+
+        if let error {
+            isFinished = true
+            lock.unlock()
+            continuation.resume(throwing: error)
+            return
+        }
+
+        samples.append(contentsOf: batch)
+        guard done else {
+            lock.unlock()
+            return
+        }
+
+        isFinished = true
+        let result = samples
+        lock.unlock()
+        continuation.resume(returning: result)
+    }
+}
+
 enum HealthKitManagerError: LocalizedError {
     case healthDataUnavailable
     case noRoute
@@ -48,14 +85,12 @@ final class HealthKitManager {
 
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             healthStore.requestAuthorization(toShare: [], read: [workout, route, heartRate]) { success, error in
-                Task { @MainActor in
-                    if let error {
-                        continuation.resume(throwing: error)
-                    } else if success {
-                        continuation.resume()
-                    } else {
-                        continuation.resume(throwing: HealthKitManagerError.healthDataUnavailable)
-                    }
+                if let error {
+                    continuation.resume(throwing: error)
+                } else if success {
+                    continuation.resume()
+                } else {
+                    continuation.resume(throwing: HealthKitManagerError.healthDataUnavailable)
                 }
             }
         }
@@ -72,12 +107,10 @@ final class HealthKitManager {
                 limit: safeLimit,
                 sortDescriptors: [sort]
             ) { _, samples, error in
-                Task { @MainActor in
-                    if let error {
-                        continuation.resume(throwing: error)
-                    } else {
-                        continuation.resume(returning: (samples as? [HKWorkout]) ?? [])
-                    }
+                if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(returning: (samples as? [HKWorkout]) ?? [])
                 }
             }
             healthStore.execute(query)
@@ -115,12 +148,10 @@ final class HealthKitManager {
                 limit: HKObjectQueryNoLimit,
                 sortDescriptors: nil
             ) { _, samples, error in
-                Task { @MainActor in
-                    if let error {
-                        continuation.resume(throwing: error)
-                    } else {
-                        continuation.resume(returning: (samples as? [HKWorkoutRoute]) ?? [])
-                    }
+                if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(returning: (samples as? [HKWorkoutRoute]) ?? [])
                 }
             }
             healthStore.execute(query)
@@ -129,8 +160,7 @@ final class HealthKitManager {
 
     private func fetchLocations(for route: HKWorkoutRoute) async throws -> [RouteLocationSample] {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<[RouteLocationSample], Error>) in
-            var allSamples: [RouteLocationSample] = []
-            var isFinished = false
+            let accumulator = RouteQueryAccumulator()
             let query = HKWorkoutRouteQuery(route: route) { _, locations, done, error in
                 let batch = (locations ?? []).map {
                     RouteLocationSample(
@@ -139,19 +169,12 @@ final class HealthKitManager {
                         hasReliableAltitude: $0.verticalAccuracy >= 0
                     )
                 }
-                Task { @MainActor in
-                    guard !isFinished else { return }
-                    if let error {
-                        isFinished = true
-                        continuation.resume(throwing: error)
-                        return
-                    }
-                    allSamples.append(contentsOf: batch)
-                    if done {
-                        isFinished = true
-                        continuation.resume(returning: allSamples)
-                    }
-                }
+                accumulator.receive(
+                    batch: batch,
+                    done: done,
+                    error: error,
+                    continuation: continuation
+                )
             }
             healthStore.execute(query)
         }

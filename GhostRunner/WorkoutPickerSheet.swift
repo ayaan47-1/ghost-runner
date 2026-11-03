@@ -4,7 +4,7 @@ import SwiftUI
 struct WorkoutPickerSheet: View {
     let workouts: [HKWorkout]
     let selectedWorkout: HKWorkout?
-    let onSelect: (HKWorkout) -> Void
+    let onSelect: (UUID) -> Void
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -19,7 +19,7 @@ struct WorkoutPickerSheet: View {
                 } else {
                     List(workouts, id: \.uuid) { workout in
                         Button {
-                            onSelect(workout)
+                            onSelect(workout.uuid)
                             dismiss()
                         } label: {
                             HStack {
