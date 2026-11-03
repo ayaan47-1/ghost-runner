@@ -9,17 +9,29 @@ struct ContentView: View {
 
             switch viewModel.loadState {
             case .idle, .loading:
-                ProgressView("Loading runs…")
-                    .padding(20)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+                stateCard(systemImage: "figure.run", title: "Loading runs…") {
+                    ProgressView().controlSize(.large)
+                }
             case .empty(let title, let message):
-                emptyState(title: title, message: message, systemImage: "map")
+                stateCard(systemImage: "map", title: title, message: message) {
+                    if !viewModel.recentRuns.isEmpty {
+                        Button("Choose Another Run") { viewModel.isWorkoutPickerPresented = true }
+                            .buttonStyle(.borderedProminent)
+                    } else {
+                        Button("Try Again") { Task { await viewModel.retry() } }
+                            .buttonStyle(.borderedProminent)
+                    }
+                }
             case .failed(let message):
-                emptyState(title: "Health Access Needed", message: message, systemImage: "heart.slash")
+                stateCard(systemImage: "heart.slash", title: "Runs Unavailable", message: message) {
+                    Button("Try Again") { Task { await viewModel.retry() } }
+                        .buttonStyle(.borderedProminent)
+                }
             case .ready:
                 EmptyView()
             }
         }
+        .background(GhostRunnerPalette.canvas)
         .ignoresSafeArea()
         .task {
             await viewModel.load()
@@ -34,18 +46,35 @@ struct ContentView: View {
         }
     }
 
-    private func emptyState(title: String, message: String, systemImage: String) -> some View {
-        VStack(spacing: 16) {
-            ContentUnavailableView(title, systemImage: systemImage, description: Text(message))
-            if !viewModel.recentRuns.isEmpty {
-                Button("Choose Another Run") {
-                    viewModel.isWorkoutPickerPresented = true
-                }
-                .buttonStyle(.borderedProminent)
+    private func stateCard<Actions: View>(
+        systemImage: String,
+        title: String,
+        message: String? = nil,
+        @ViewBuilder actions: () -> Actions
+    ) -> some View {
+        VStack(spacing: 14) {
+            Image(systemName: systemImage)
+                .font(.system(size: 28, weight: .semibold))
+                .foregroundStyle(GhostRunnerPalette.actionBlue)
+                .accessibilityHidden(true)
+            Text(title)
+                .font(.system(size: 22, weight: .bold))
+                .multilineTextAlignment(.center)
+            if let message {
+                Text(message)
+                    .font(.system(size: 15))
+                    .foregroundStyle(GhostRunnerPalette.inkSecondary)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(3)
             }
+            actions()
         }
-            .padding(24)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 24))
-            .padding()
+        .foregroundStyle(GhostRunnerPalette.ink)
+        .padding(20)
+        .frame(maxWidth: 340)
+        .background(GhostRunnerPalette.surface, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(GhostRunnerPalette.hairline))
+        .shadow(color: .black.opacity(0.14), radius: 12, y: 5)
+        .padding(20)
     }
 }

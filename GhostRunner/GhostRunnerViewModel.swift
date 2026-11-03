@@ -169,6 +169,22 @@ final class GhostRunnerViewModel {
         await selectWorkout(workout)
     }
 
+    func retry() async {
+        _ = selectionGeneration.begin()
+        stopPlayback()
+        recentRuns = []
+        selectedWorkout = nil
+        routeCoordinates = []
+        routePath = RoutePath(points: [])
+        routeTimestamps = nil
+        ghostCoordinate = nil
+        elevationGainMetres = nil
+        ghostCoordinateIndex = 0
+        playbackDistance = 0
+        loadState = .idle
+        await load()
+    }
+
     func togglePlayback() {
         isPlaying ? stopPlayback() : startPlayback()
     }
