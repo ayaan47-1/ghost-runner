@@ -26,6 +26,8 @@ final class GhostRunnerViewModel {
     var playbackSpeed = 1.0
     var loadState: LoadState = .idle
     var isWorkoutPickerPresented = false
+    var isSplitsPresented = false
+    private(set) var selectedSplitIndex: Int?
 
     private let healthKitManager: HealthKitManager
     private var playbackTask: Task<Void, Never>?
@@ -90,6 +92,14 @@ final class GhostRunnerViewModel {
         RunFormatting.elevationGain(metres: elevationGainMetres, units: unitPreference)
     }
 
+    var observedSplits: [ObservedSplit]? {
+        SplitMath.completed(
+            cumulativeDistances: routePath.cumulativeDistances,
+            timestamps: routeTimestamps,
+            units: unitPreference
+        )
+    }
+
     func load() async {
         guard loadState == .idle else { return }
         loadState = .loading
@@ -146,6 +156,7 @@ final class GhostRunnerViewModel {
         elevationGainMetres = nil
         ghostCoordinateIndex = 0
         playbackDistance = 0
+        selectedSplitIndex = nil
         loadState = .loading
 
         do {
@@ -181,12 +192,21 @@ final class GhostRunnerViewModel {
         elevationGainMetres = nil
         ghostCoordinateIndex = 0
         playbackDistance = 0
+        selectedSplitIndex = nil
         loadState = .idle
         await load()
     }
 
     func togglePlayback() {
         isPlaying ? stopPlayback() : startPlayback()
+    }
+
+    func selectSplit(_ split: ObservedSplit) {
+        stopPlayback()
+        selectedSplitIndex = split.index
+        playbackDistance = min(max(0, split.startDistance), routePath.totalDistance)
+        ghostCoordinateIndex = routePath.index(atDistance: playbackDistance)
+        updateGhostCoordinate()
     }
 
     func scrub(to value: Double) {
@@ -255,6 +275,7 @@ final class GhostRunnerViewModel {
         elevationGainMetres = route.elevationGainMetres
         ghostCoordinateIndex = 0
         playbackDistance = 0
+        selectedSplitIndex = nil
         loadState = .ready
         isWorkoutPickerPresented = false
     }

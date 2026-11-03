@@ -338,6 +338,61 @@ final class GhostRunnerLogicTests: XCTestCase {
         XCTAssertEqual(split.secondsPerKilometre, 300, accuracy: 0.000_001)
     }
 
+    func testCompletedSplitsUseObservedMetricPacesAndExcludePartialSplit() throws {
+        let splits = try XCTUnwrap(SplitMath.completed(
+            cumulativeDistances: [0, 1_000, 2_000, 2_500],
+            timestamps: [0, 300, 660, 800],
+            units: .metric
+        ))
+
+        XCTAssertEqual(splits.count, 2)
+        XCTAssertEqual(splits[0].index, 1)
+        XCTAssertEqual(splits[0].secondsPerKilometre, 300, accuracy: 0.000_001)
+        XCTAssertEqual(splits[1].secondsPerKilometre, 360, accuracy: 0.000_001)
+        XCTAssertEqual(splits[1].elapsedSeconds, 360, accuracy: 0.000_001)
+    }
+
+    func testCompletedSplitsUseMileBoundaries() throws {
+        let splits = try XCTUnwrap(SplitMath.completed(
+            cumulativeDistances: [0, 1_609.344, 3_218.688],
+            timestamps: [0, 480, 960],
+            units: .imperial
+        ))
+
+        XCTAssertEqual(splits.map(\.index), [1, 2])
+        XCTAssertEqual(splits[0].startDistance, 0, accuracy: 0.000_001)
+        XCTAssertEqual(splits[1].startDistance, 1_609.344, accuracy: 0.000_001)
+    }
+
+    func testCompletedSplitsAreUnavailableWithoutReliableTimestamps() {
+        XCTAssertNil(SplitMath.completed(
+            cumulativeDistances: [0, 1_000],
+            timestamps: nil,
+            units: .metric
+        ))
+        XCTAssertNil(SplitMath.completed(
+            cumulativeDistances: [0, 1_000],
+            timestamps: [10, 5],
+            units: .metric
+        ))
+        XCTAssertEqual(SplitMath.completed(
+            cumulativeDistances: [0, 100, 1_000],
+            timestamps: [0, 30, 10_000],
+            units: .metric
+        ), [])
+    }
+
+    func testCompletedSplitsExcludeStationaryBoundaryTime() throws {
+        let splits = try XCTUnwrap(SplitMath.completed(
+            cumulativeDistances: [0, 1_000, 1_000, 2_000],
+            timestamps: [0, 300, 600, 900],
+            units: .metric
+        ))
+
+        XCTAssertEqual(splits.map(\.secondsPerKilometre), [300, 300])
+        XCTAssertEqual(splits.map(\.elapsedSeconds), [300, 300])
+    }
+
     func testScrubberClampsAndRoundsToCoordinate() {
         XCTAssertEqual(PlaybackMath.scrubbedIndex(for: -4, routeCount: 20), 0)
         XCTAssertEqual(PlaybackMath.scrubbedIndex(for: 6.6, routeCount: 20), 7)

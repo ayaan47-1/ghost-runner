@@ -33,7 +33,6 @@ struct GhostRunnerMapView: View {
     @State private var cameraPosition: MapCameraPosition = .automatic
     @State private var fittedRegion: MKCoordinateRegion?
     @State private var showsRecenter = false
-    @State private var showsReplayDetails = false
 
     var body: some View {
         GeometryReader { geometry in
@@ -94,7 +93,7 @@ struct GhostRunnerMapView: View {
                     .padding(.bottom, 12)
             }
         }
-        .sheet(isPresented: $showsReplayDetails) { ReplayDetailsSheet(viewModel: viewModel) }
+        .sheet(isPresented: $viewModel.isSplitsPresented) { SplitsSheet(viewModel: viewModel) }
     }
 
     private func runSummaryPanel(layoutMode: ReplayLayoutMode) -> some View {
@@ -190,17 +189,18 @@ struct GhostRunnerMapView: View {
                 HStack(spacing: 8) {
                     dockStat("CURRENT SPLIT", viewModel.formattedCurrentSplit)
                     dockStat("ELEVATION GAIN", viewModel.formattedElevationGain)
-                    Button("Splits") { showsReplayDetails = true }
+                    Button("Splits") { viewModel.isSplitsPresented = true }
                         .frame(minWidth: 64, minHeight: 44)
                         .buttonStyle(.bordered)
                 }
             } else {
-                Button("Replay Details") { showsReplayDetails = true }
+                Button("Replay Details") { viewModel.isSplitsPresented = true }
                     .frame(maxWidth: .infinity, minHeight: 44)
                     .buttonStyle(.bordered)
             }
         }
         .padding(12)
+        .frame(minHeight: layoutMode == .regular ? 174 : 0)
         .foregroundStyle(GhostRunnerPalette.ink)
         .background(GhostRunnerPalette.surface, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(GhostRunnerPalette.hairline))
@@ -252,25 +252,49 @@ private struct GhostPuck: View {
     }
 }
 
-private struct ReplayDetailsSheet: View {
+private struct SplitsSheet: View {
     @Bindable var viewModel: GhostRunnerViewModel
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 18) {
-                detail("AVERAGE PACE", viewModel.formattedPace)
-                detail("CURRENT SPLIT", viewModel.formattedCurrentSplit)
-                detail("ELEVATION GAIN", viewModel.formattedElevationGain)
-                Spacer()
+            ScrollView {
+                VStack(spacing: 16) {
+                    HStack(spacing: 8) {
+                        summary("DISTANCE", viewModel.formattedDistance)
+                        summary("DURATION", viewModel.formattedDuration)
+                        summary("AVG PACE", viewModel.formattedPace)
+                    }
+
+                    detail("CURRENT SPLIT", viewModel.formattedCurrentSplit)
+                    detail("ELEVATION GAIN", viewModel.formattedElevationGain)
+
+                    if let splits = viewModel.observedSplits {
+                        if splits.isEmpty {
+                            unavailable("Complete a full split to see observed pace.")
+                        } else {
+                            ForEach(splits, id: \.index) { split in splitRow(split) }
+                        }
+                    } else {
+                        unavailable("Split details unavailable for this run.")
+                    }
+                }
+                .padding(20)
             }
-            .padding(20)
-            .navigationTitle("Replay Details")
+            .navigationTitle("Splits")
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
             }
         }
-        .presentationDetents([.medium])
+        .presentationDetents([.large])
+    }
+
+    private func summary(_ title: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(value).font(.system(.headline, design: .rounded, weight: .semibold)).monospacedDigit()
+            Text(title).font(.system(size: 10, weight: .semibold)).foregroundStyle(GhostRunnerPalette.inkSecondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func detail(_ title: String, _ value: String) -> some View {
@@ -280,5 +304,53 @@ private struct ReplayDetailsSheet: View {
             Text(value).font(.system(.headline, design: .rounded, weight: .semibold)).monospacedDigit()
         }
         .frame(minHeight: 44)
+    }
+
+    private func splitRow(_ split: ObservedSplit) -> some View {
+        let isSelected = viewModel.selectedSplitIndex == split.index
+        return Button {
+            viewModel.selectSplit(split)
+        } label: {
+            HStack {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(RunFormatting.splitLabel(index: split.index, units: viewModel.unitPreference))
+                        .font(.system(size: 16, weight: .semibold))
+                    if isSelected {
+                        Text("Selected replay start")
+                            .font(.caption)
+                            .foregroundStyle(GhostRunnerPalette.actionBlue)
+                    }
+                }
+                Spacer()
+                VStack(alignment: .trailing, spacing: 3) {
+                    Text(RunFormatting.pace(
+                        secondsPerKilometre: split.secondsPerKilometre,
+                        units: viewModel.unitPreference
+                    ))
+                    .font(.system(.headline, design: .rounded, weight: .semibold))
+                    .monospacedDigit()
+                    Text(RunFormatting.duration(seconds: split.elapsedSeconds))
+                        .font(.caption)
+                        .foregroundStyle(GhostRunnerPalette.inkSecondary)
+                }
+            }
+            .padding(14)
+            .frame(minHeight: 64)
+            .background(GhostRunnerPalette.surface, in: RoundedRectangle(cornerRadius: 14))
+            .overlay(RoundedRectangle(cornerRadius: 14).stroke(
+                isSelected ? GhostRunnerPalette.actionBlue : GhostRunnerPalette.hairline,
+                lineWidth: isSelected ? 2 : 1
+            ))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(RunFormatting.splitLabel(index: split.index, units: viewModel.unitPreference)), observed pace \(RunFormatting.pace(secondsPerKilometre: split.secondsPerKilometre, units: viewModel.unitPreference))")
+    }
+
+    private func unavailable(_ message: String) -> some View {
+        Text(message)
+            .font(.system(size: 15))
+            .foregroundStyle(GhostRunnerPalette.inkSecondary)
+            .multilineTextAlignment(.center)
+            .padding(20)
     }
 }

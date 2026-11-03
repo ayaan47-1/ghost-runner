@@ -357,6 +357,23 @@ public struct CurrentSplit: Equatable, Sendable {
     }
 }
 
+public struct ObservedSplit: Equatable, Sendable {
+    public let index: Int
+    public let startDistance: Double
+    public let endDistance: Double
+    public let secondsPerKilometre: Double
+    public let elapsedSeconds: TimeInterval
+
+    public init(index: Int, startDistance: Double, endDistance: Double,
+                secondsPerKilometre: Double, elapsedSeconds: TimeInterval) {
+        self.index = index
+        self.startDistance = startDistance
+        self.endDistance = endDistance
+        self.secondsPerKilometre = secondsPerKilometre
+        self.elapsedSeconds = elapsedSeconds
+    }
+}
+
 public enum SplitMath {
     private static let metresPerMile = 1_609.344
     private static let minimumSampleDistance = 20.0
@@ -430,6 +447,43 @@ public enum SplitMath {
         return fallback
     }
 
+    public static func completed(
+        cumulativeDistances: [Double],
+        timestamps: [TimeInterval]?,
+        units: UnitPreference
+    ) -> [ObservedSplit]? {
+        guard let timestamps,
+              timestamps.count == cumulativeDistances.count,
+              timestamps.count > 1,
+              zip(timestamps, timestamps.dropFirst()).allSatisfy({ pair in
+                  pair.0.isFinite && pair.1.isFinite && pair.1 >= pair.0
+              }),
+              zip(cumulativeDistances, cumulativeDistances.dropFirst()).allSatisfy({ pair in
+                  pair.0.isFinite && pair.1.isFinite && pair.1 >= pair.0
+              }) else { return nil }
+
+        let unitDistance = units == .metric ? 1_000.0 : metresPerMile
+        let completedCount = Int(max(0, cumulativeDistances.last ?? 0) / unitDistance)
+        return (0..<completedCount).compactMap { offset in
+            let start = Double(offset) * unitDistance
+            let end = start + unitDistance
+            guard let metrics = movingMetrics(
+                from: start, to: end,
+                cumulativeDistances: cumulativeDistances,
+                timestamps: timestamps
+            ), metrics.distance >= unitDistance * 0.9 else { return nil }
+            let pace = metrics.time / metrics.distance * 1_000
+            guard plausibleSecondsPerKilometre.contains(pace) else { return nil }
+            return ObservedSplit(
+                index: offset + 1,
+                startDistance: start,
+                endDistance: end,
+                secondsPerKilometre: pace,
+                elapsedSeconds: metrics.time
+            )
+        }
+    }
+
     private static func pace(
         from startDistance: Double,
         to endDistance: Double,
@@ -438,6 +492,24 @@ public enum SplitMath {
     ) -> Double? {
         guard endDistance > startDistance else { return nil }
 
+        guard let metrics = movingMetrics(
+            from: startDistance,
+            to: endDistance,
+            cumulativeDistances: cumulativeDistances,
+            timestamps: timestamps
+        ) else { return nil }
+        let secondsPerKilometre = metrics.time / metrics.distance * 1_000
+        guard plausibleSecondsPerKilometre.contains(secondsPerKilometre) else { return nil }
+        return secondsPerKilometre
+    }
+
+    private static func movingMetrics(
+        from startDistance: Double,
+        to endDistance: Double,
+        cumulativeDistances: [Double],
+        timestamps: [TimeInterval]
+    ) -> (distance: Double, time: Double)? {
+        guard endDistance > startDistance else { return nil }
         var movingDistance = 0.0
         var movingTime = 0.0
         for index in 1..<cumulativeDistances.count {
@@ -459,9 +531,7 @@ public enum SplitMath {
         }
 
         guard movingDistance > 0, movingTime > 0 else { return nil }
-        let secondsPerKilometre = movingTime / movingDistance * 1_000
-        guard plausibleSecondsPerKilometre.contains(secondsPerKilometre) else { return nil }
-        return secondsPerKilometre
+        return (movingDistance, movingTime)
     }
 
     private static func safeAverage(_ average: Double) -> Double {
@@ -482,6 +552,10 @@ public enum RunFormatting {
         case .imperial:
             return String(format: "%.2f mi", locale: posixLocale, safeMetres / metresPerMile)
         }
+    }
+
+    public static func splitLabel(index: Int, units: UnitPreference) -> String {
+        "\(units == .metric ? "Km" : "Mile") \(max(1, index))"
     }
 
     public static func pace(secondsPerKilometre: Double?, units: UnitPreference) -> String {
