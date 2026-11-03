@@ -28,6 +28,7 @@ final class GhostRunnerViewModel {
     var isWorkoutPickerPresented = false
     var isSplitsPresented = false
     private(set) var selectedSplitIndex: Int?
+    private(set) var routePresentationID: UInt64 = 0
 
     private let healthKitManager: HealthKitManager
     private var playbackTask: Task<Void, Never>?
@@ -35,6 +36,7 @@ final class GhostRunnerViewModel {
     private var routePath = RoutePath(points: [])
     private var routeTimestamps: [TimeInterval]?
     private var selectionGeneration = SelectionGeneration()
+    private var routePresentationGeneration = SelectionGeneration()
 
     init(healthKitManager: HealthKitManager = HealthKitManager()) {
         self.healthKitManager = healthKitManager
@@ -157,6 +159,7 @@ final class GhostRunnerViewModel {
         ghostCoordinateIndex = 0
         playbackDistance = 0
         selectedSplitIndex = nil
+        routePresentationID = routePresentationGeneration.begin()
         loadState = .loading
 
         do {

@@ -56,7 +56,7 @@ struct GhostRunnerMapView: View {
             .mapStyle(.standard(elevation: .realistic))
             .accessibilityLabel("Route replay map")
             .accessibilityValue(viewModel.isPlaying ? "Ghost replay in progress" : "Ghost replay paused")
-            .onChange(of: viewModel.routeCoordinates.count) { _, _ in
+            .onChange(of: viewModel.routePresentationID) { _, _ in
                 fitRoute(in: geometry.size, safeAreaTop: geometry.safeAreaInsets.top)
             }
             .onMapCameraChange(frequency: .onEnd) { context in
