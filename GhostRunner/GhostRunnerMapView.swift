@@ -29,12 +29,18 @@ private extension UIColor {
 
 struct GhostRunnerMapView: View {
     @Bindable var viewModel: GhostRunnerViewModel
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var cameraPosition: MapCameraPosition = .automatic
     @State private var fittedRegion: MKCoordinateRegion?
     @State private var showsRecenter = false
+    @State private var showsReplayDetails = false
 
     var body: some View {
         GeometryReader { geometry in
+            let layoutMode = ReplayLayoutPolicy.mode(
+                availableHeight: geometry.size.height,
+                usesAccessibilitySizes: dynamicTypeSize.isAccessibilitySize
+            )
             Map(position: $cameraPosition) {
                 if !viewModel.routeCoordinates.isEmpty {
                     MapPolyline(coordinates: viewModel.routeCoordinates)
@@ -58,7 +64,7 @@ struct GhostRunnerMapView: View {
                 showsRecenter = !approximatelyEqual(context.region, fittedRegion)
             }
             .overlay(alignment: .top) {
-                runSummaryPanel
+                runSummaryPanel(layoutMode: layoutMode)
                     .frame(height: 118)
                     .padding(.horizontal, 20)
                     .padding(.top, geometry.safeAreaInsets.top + 8)
@@ -78,15 +84,20 @@ struct GhostRunnerMapView: View {
                     .overlay(Circle().stroke(GhostRunnerPalette.hairline))
                     .shadow(color: .black.opacity(0.15), radius: 8, y: 4)
                     .padding(.trailing, 16)
-                    .padding(.bottom, 250 + geometry.safeAreaInsets.bottom)
+                    .padding(.bottom, (layoutMode == .compact ? 158 : 206) + geometry.safeAreaInsets.bottom)
                     .accessibilityLabel("Recenter route")
                 }
             }
-            .overlay(alignment: .bottom) { controlDock.padding() }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                controlDock(layoutMode: layoutMode)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 12)
+            }
         }
+        .sheet(isPresented: $showsReplayDetails) { ReplayDetailsSheet(viewModel: viewModel) }
     }
 
-    private var runSummaryPanel: some View {
+    private func runSummaryPanel(layoutMode: ReplayLayoutMode) -> some View {
         VStack(spacing: 12) {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
@@ -114,7 +125,9 @@ struct GhostRunnerMapView: View {
             HStack(spacing: 8) {
                 summaryStat("DISTANCE", viewModel.formattedDistance)
                 summaryStat("DURATION", viewModel.formattedDuration)
-                summaryStat("AVG PACE", viewModel.formattedPace)
+                if layoutMode == .regular {
+                    summaryStat("AVG PACE", viewModel.formattedPace)
+                }
             }
         }
         .padding(.horizontal, 16)
@@ -138,36 +151,60 @@ struct GhostRunnerMapView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var controlDock: some View {
-        VStack(spacing: 12) {
-            HStack(spacing: 18) {
+    private func controlDock(layoutMode: ReplayLayoutMode) -> some View {
+        VStack(spacing: 10) {
+            HStack {
+                Text("START")
+                Spacer()
+                Text("FINISH")
+            }
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(GhostRunnerPalette.inkSecondary)
+
+            HStack(spacing: 12) {
                 Button(action: viewModel.togglePlayback) {
                     Image(systemName: viewModel.isPlaying ? "pause.fill" : "play.fill")
-                        .font(.title2).frame(width: 32, height: 32)
+                        .font(.system(size: 20, weight: .bold)).frame(width: 52, height: 52)
                 }
+                .buttonStyle(.plain)
+                .foregroundStyle(.white)
+                .background(GhostRunnerPalette.actionBlue, in: Circle())
                 .accessibilityLabel(viewModel.isPlaying ? "Pause ghost" : "Play ghost")
                 Slider(value: Binding(get: { viewModel.scrubberValue }, set: { viewModel.scrubberValue = $0 }),
                        in: 0...viewModel.maximumScrubberValue)
                     .disabled(viewModel.routeCoordinates.count < 2)
+                    .accessibilityLabel("Replay position")
                 Menu("\(viewModel.playbackSpeed, specifier: "%.0f")×") {
                     ForEach(viewModel.playbackSpeeds, id: \.self) { speed in
                         Button("\(speed, specifier: "%.0f")×") { viewModel.playbackSpeed = speed }
                     }
-                }.buttonStyle(.bordered)
+                }
+                .frame(width: 44, height: 44)
+                .buttonStyle(.bordered)
+                .accessibilityLabel("Playback speed, \(viewModel.playbackSpeed, specifier: "%.0f") times")
             }
-            HStack {
-                dockStat("CURRENT SPLIT", viewModel.formattedCurrentSplit)
-                dockStat("AVG PACE", viewModel.formattedPace)
-            }
-            HStack {
-                dockStat("DISTANCE", viewModel.formattedDistance)
-                dockStat("DURATION", viewModel.formattedDuration)
-                dockStat("ELEVATION", viewModel.formattedElevationGain)
+
+            Divider().overlay(GhostRunnerPalette.hairline)
+
+            if layoutMode == .regular {
+                HStack(spacing: 8) {
+                    dockStat("CURRENT SPLIT", viewModel.formattedCurrentSplit)
+                    dockStat("ELEVATION GAIN", viewModel.formattedElevationGain)
+                    Button("Splits") { showsReplayDetails = true }
+                        .frame(minWidth: 64, minHeight: 44)
+                        .buttonStyle(.bordered)
+                }
+            } else {
+                Button("Replay Details") { showsReplayDetails = true }
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .buttonStyle(.bordered)
             }
         }
-        .padding(16)
-        .background(GhostRunnerPalette.surface, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .shadow(color: .black.opacity(0.18), radius: 16, y: 8)
+        .padding(12)
+        .foregroundStyle(GhostRunnerPalette.ink)
+        .background(GhostRunnerPalette.surface, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(GhostRunnerPalette.hairline))
+        .shadow(color: .black.opacity(0.15), radius: 12, y: 5)
     }
 
     private func dockStat(_ title: String, _ value: String) -> some View {
@@ -212,5 +249,36 @@ private struct GhostPuck: View {
             .padding(2)
             .overlay(Circle().stroke(.white, lineWidth: 2))
             .accessibilityHidden(true)
+    }
+}
+
+private struct ReplayDetailsSheet: View {
+    @Bindable var viewModel: GhostRunnerViewModel
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 18) {
+                detail("AVERAGE PACE", viewModel.formattedPace)
+                detail("CURRENT SPLIT", viewModel.formattedCurrentSplit)
+                detail("ELEVATION GAIN", viewModel.formattedElevationGain)
+                Spacer()
+            }
+            .padding(20)
+            .navigationTitle("Replay Details")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+            }
+        }
+        .presentationDetents([.medium])
+    }
+
+    private func detail(_ title: String, _ value: String) -> some View {
+        HStack {
+            Text(title).font(.system(size: 12, weight: .semibold)).foregroundStyle(GhostRunnerPalette.inkSecondary)
+            Spacer()
+            Text(value).font(.system(.headline, design: .rounded, weight: .semibold)).monospacedDigit()
+        }
+        .frame(minHeight: 44)
     }
 }

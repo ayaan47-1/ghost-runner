@@ -269,6 +269,17 @@ public enum PlaybackMath {
     }
 }
 
+public enum ReplayLayoutMode: Equatable, Sendable {
+    case regular
+    case compact
+}
+
+public enum ReplayLayoutPolicy {
+    public static func mode(availableHeight: Double, usesAccessibilitySizes: Bool) -> ReplayLayoutMode {
+        availableHeight < 720 || usesAccessibilitySizes ? .compact : .regular
+    }
+}
+
 public struct SelectionGeneration: Sendable {
     private var value: UInt64 = 0
 

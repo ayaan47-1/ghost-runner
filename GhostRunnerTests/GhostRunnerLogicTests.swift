@@ -6,6 +6,12 @@ import XCTest
 #endif
 
 final class GhostRunnerLogicTests: XCTestCase {
+    func testReplayLayoutUsesCompactDockOnShortOrAccessibilityLayouts() {
+        XCTAssertEqual(ReplayLayoutPolicy.mode(availableHeight: 844, usesAccessibilitySizes: false), .regular)
+        XCTAssertEqual(ReplayLayoutPolicy.mode(availableHeight: 667, usesAccessibilitySizes: false), .compact)
+        XCTAssertEqual(ReplayLayoutPolicy.mode(availableHeight: 844, usesAccessibilitySizes: true), .compact)
+    }
+
     func testRouteRegionFitsBoundsWithPadding() throws {
         let points = [
             GeoPoint(latitude: 37.0, longitude: -122.2),
