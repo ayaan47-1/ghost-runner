@@ -379,7 +379,6 @@ public enum SplitMath {
     private static let minimumSampleDistance = 20.0
     private static let minimumCurrentSplitDistance = 100.0
     private static let rollingWindowDistance = 200.0
-    private static let stationaryDistanceTolerance = 1.0
     private static let minimumMovingSpeed = 0.5
     private static let plausibleSecondsPerKilometre = 120.0...1_800.0
 
@@ -517,7 +516,7 @@ public enum SplitMath {
             let segmentEnd = cumulativeDistances[index]
             let segmentDistance = segmentEnd - segmentStart
             let segmentTime = timestamps[index] - timestamps[index - 1]
-            guard segmentDistance > stationaryDistanceTolerance,
+            guard segmentDistance > 0,
                   segmentTime > 0,
                   segmentDistance / segmentTime >= minimumMovingSpeed else { continue }
 

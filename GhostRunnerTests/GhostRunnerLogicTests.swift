@@ -393,6 +393,31 @@ final class GhostRunnerLogicTests: XCTestCase {
         XCTAssertEqual(splits.map(\.elapsedSeconds), [300, 300])
     }
 
+    func testDenseRunningSamplesRemainMoving() throws {
+        let sampleCount = 1_335
+        let distances = (0..<sampleCount).map { Double($0) * 0.75 }
+        let timestamps = (0..<sampleCount).map { Double($0) * 0.25 }
+
+        let splits = try XCTUnwrap(SplitMath.completed(
+            cumulativeDistances: distances,
+            timestamps: timestamps,
+            units: .metric
+        ))
+        let current = SplitMath.current(
+            atDistance: 1_000,
+            cumulativeDistances: distances,
+            timestamps: timestamps,
+            units: .metric,
+            averageSecondsPerKilometre: 420
+        )
+
+        let split = try XCTUnwrap(splits.first)
+        XCTAssertEqual(splits.count, 1)
+        XCTAssertEqual(split.secondsPerKilometre, 1_000 / 3, accuracy: 0.001)
+        XCTAssertEqual(current.source, .previous)
+        XCTAssertEqual(current.secondsPerKilometre, 1_000 / 3, accuracy: 0.001)
+    }
+
     func testScrubberClampsAndRoundsToCoordinate() {
         XCTAssertEqual(PlaybackMath.scrubbedIndex(for: -4, routeCount: 20), 0)
         XCTAssertEqual(PlaybackMath.scrubbedIndex(for: 6.6, routeCount: 20), 7)
