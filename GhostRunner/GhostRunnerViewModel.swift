@@ -31,6 +31,7 @@ final class GhostRunnerViewModel {
     private var playbackTask: Task<Void, Never>?
     private var playbackDistance = 0.0
     private var routePath = RoutePath(points: [])
+    private var routeTimestamps: [TimeInterval]?
     private var selectionGeneration = SelectionGeneration()
 
     init(healthKitManager: HealthKitManager = HealthKitManager()) {
@@ -62,15 +63,27 @@ final class GhostRunnerViewModel {
     }
 
     var formattedPace: String {
+        RunFormatting.pace(secondsPerKilometre: averageSecondsPerKilometre, units: unitPreference)
+    }
+
+    var formattedCurrentSplit: String {
+        let split = SplitMath.current(
+            atDistance: playbackDistance,
+            cumulativeDistances: routePath.cumulativeDistances,
+            timestamps: routeTimestamps,
+            units: unitPreference,
+            averageSecondsPerKilometre: averageSecondsPerKilometre ?? 0
+        )
+        return RunFormatting.currentSplit(split, units: unitPreference)
+    }
+
+    private var averageSecondsPerKilometre: Double? {
         guard let workout = selectedWorkout,
               let metres = workout.totalDistance?.doubleValue(for: .meter()),
               metres > 0 else {
-            return "—"
+            return nil
         }
-        return RunFormatting.pace(
-            secondsPerKilometre: workout.duration / (metres / 1_000),
-            units: unitPreference
-        )
+        return workout.duration / (metres / 1_000)
     }
 
     var formattedElevationGain: String {
@@ -102,6 +115,7 @@ final class GhostRunnerViewModel {
         selectedWorkout = workout
         routeCoordinates = []
         routePath = RoutePath(points: [])
+        routeTimestamps = nil
         ghostCoordinate = nil
         elevationGainMetres = nil
         ghostCoordinateIndex = 0
@@ -113,6 +127,7 @@ final class GhostRunnerViewModel {
             guard selectionGeneration.isCurrent(generation) else { return }
             routeCoordinates = route.coordinates
             routePath = route.path
+            routeTimestamps = route.timestamps
             ghostCoordinate = route.coordinates.first
             elevationGainMetres = route.elevationGainMetres
             loadState = .ready

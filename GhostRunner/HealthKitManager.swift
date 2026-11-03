@@ -6,6 +6,7 @@ struct WorkoutRouteData: Sendable {
     let coordinates: [CLLocationCoordinate2D]
     let elevationGainMetres: Double?
     let path: RoutePath
+    let timestamps: [TimeInterval]?
 }
 
 private final class RouteQueryAccumulator: @unchecked Sendable {
@@ -134,7 +135,10 @@ final class HealthKitManager {
                     CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude)
                 },
                 elevationGainMetres: Self.elevationGain(from: samples),
-                path: path
+                path: path,
+                timestamps: samples.allSatisfy({ $0.timestamp.isFinite })
+                    ? samples.map(\.timestamp)
+                    : nil
             )
         }.value
         guard let result else {

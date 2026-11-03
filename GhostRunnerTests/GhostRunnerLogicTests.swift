@@ -153,6 +153,108 @@ final class GhostRunnerLogicTests: XCTestCase {
         XCTAssertTrue(generation.isCurrent(second))
     }
 
+    func testCurrentSplitUsesRealTimestampsForSplitIndexAndPace() {
+        let split = SplitMath.current(
+            atDistance: 1_500,
+            cumulativeDistances: [0, 500, 1_000, 1_500, 2_000],
+            timestamps: [0, 120, 240, 420, 600],
+            units: .metric,
+            averageSecondsPerKilometre: 300
+        )
+
+        XCTAssertEqual(split.index, 2)
+        XCTAssertEqual(split.secondsPerKilometre, 360, accuracy: 0.000_001)
+        XCTAssertEqual(split.source, .actual)
+        XCTAssertEqual(RunFormatting.currentSplit(split, units: .metric), "Km 2 · 6:00 /km")
+    }
+
+    func testCurrentSplitUsesKilometreAndMileBoundaries() {
+        XCTAssertEqual(
+            SplitMath.current(
+                atDistance: 1_000,
+                cumulativeDistances: [0, 1_000, 2_000],
+                timestamps: [0, 300, 600],
+                units: .metric,
+                averageSecondsPerKilometre: 300
+            ).index,
+            2
+        )
+        XCTAssertEqual(
+            SplitMath.current(
+                atDistance: 1_609.344,
+                cumulativeDistances: [0, 1_609.344, 3_218.688],
+                timestamps: [0, 480, 960],
+                units: .imperial,
+                averageSecondsPerKilometre: 298.258_172,
+            ).index,
+            2
+        )
+    }
+
+    func testCurrentSplitFallsBackToPreviousSplitAtStartOfNextSplit() {
+        let split = SplitMath.current(
+            atDistance: 1_050,
+            cumulativeDistances: [0, 1_000, 1_050, 2_000],
+            timestamps: [0, 300, 310, 600],
+            units: .metric,
+            averageSecondsPerKilometre: 330
+        )
+
+        XCTAssertEqual(split.index, 2)
+        XCTAssertEqual(split.secondsPerKilometre, 300, accuracy: 0.000_001)
+        XCTAssertEqual(split.source, .previous)
+    }
+
+    func testCurrentSplitUsesShortRollingWindowDuringFirstSplit() {
+        let split = SplitMath.current(
+            atDistance: 50,
+            cumulativeDistances: [0, 50, 1_000],
+            timestamps: [0, 25, 500],
+            units: .metric,
+            averageSecondsPerKilometre: 600
+        )
+
+        XCTAssertEqual(split.secondsPerKilometre, 500, accuracy: 0.000_001)
+        XCTAssertEqual(split.source, .rolling)
+    }
+
+    func testCurrentSplitClearlyFallsBackToAverageWithoutTimestamps() {
+        let split = SplitMath.current(
+            atDistance: 1_250,
+            cumulativeDistances: [0, 1_000, 2_000],
+            timestamps: nil,
+            units: .metric,
+            averageSecondsPerKilometre: 305
+        )
+
+        XCTAssertEqual(split.index, 2)
+        XCTAssertEqual(split.secondsPerKilometre, 305, accuracy: 0.000_001)
+        XCTAssertEqual(split.source, .average)
+        XCTAssertEqual(RunFormatting.currentSplit(split, units: .metric), "Km 2 · avg 5:05 /km")
+    }
+
+    func testCurrentSplitRejectsZeroDistanceAndAbsurdPausedPace() {
+        let noMovement = SplitMath.current(
+            atDistance: 0,
+            cumulativeDistances: [0, 0, 0],
+            timestamps: [0, 100, 200],
+            units: .metric,
+            averageSecondsPerKilometre: 320
+        )
+        let longPause = SplitMath.current(
+            atDistance: 1_000,
+            cumulativeDistances: [0, 1_000],
+            timestamps: [0, 5_000],
+            units: .metric,
+            averageSecondsPerKilometre: 320
+        )
+
+        XCTAssertEqual(noMovement.source, .average)
+        XCTAssertEqual(noMovement.secondsPerKilometre, 320)
+        XCTAssertEqual(longPause.source, .average)
+        XCTAssertEqual(longPause.secondsPerKilometre, 320)
+    }
+
     func testScrubberClampsAndRoundsToCoordinate() {
         XCTAssertEqual(PlaybackMath.scrubbedIndex(for: -4, routeCount: 20), 0)
         XCTAssertEqual(PlaybackMath.scrubbedIndex(for: 6.6, routeCount: 20), 7)

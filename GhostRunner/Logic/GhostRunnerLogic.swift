@@ -278,6 +278,148 @@ public enum UnitPreference: Sendable {
     case imperial
 }
 
+public enum SplitPaceSource: Equatable, Sendable {
+    case actual
+    case previous
+    case rolling
+    case average
+}
+
+public struct CurrentSplit: Equatable, Sendable {
+    public let index: Int
+    public let secondsPerKilometre: Double
+    public let source: SplitPaceSource
+
+    public init(index: Int, secondsPerKilometre: Double, source: SplitPaceSource) {
+        self.index = index
+        self.secondsPerKilometre = secondsPerKilometre
+        self.source = source
+    }
+}
+
+public enum SplitMath {
+    private static let metresPerMile = 1_609.344
+    private static let minimumSampleDistance = 20.0
+    private static let minimumCurrentSplitDistance = 100.0
+    private static let rollingWindowDistance = 200.0
+    private static let plausibleSecondsPerKilometre = 120.0...1_800.0
+
+    public static func current(
+        atDistance distance: Double,
+        cumulativeDistances: [Double],
+        timestamps: [TimeInterval]?,
+        units: UnitPreference,
+        averageSecondsPerKilometre: Double
+    ) -> CurrentSplit {
+        let totalDistance = max(0, cumulativeDistances.last ?? 0)
+        let currentDistance = min(max(0, distance.isFinite ? distance : 0), totalDistance)
+        let unitDistance = units == .metric ? 1_000.0 : metresPerMile
+        let splitCount = max(1, Int(ceil(totalDistance / unitDistance)))
+        let splitIndex = min(splitCount, Int(currentDistance / unitDistance) + 1)
+        let splitStart = Double(splitIndex - 1) * unitDistance
+        let splitProgress = max(0, currentDistance - splitStart)
+        let fallback = CurrentSplit(
+            index: splitIndex,
+            secondsPerKilometre: safeAverage(averageSecondsPerKilometre),
+            source: .average
+        )
+
+        guard let timestamps,
+              timestamps.count == cumulativeDistances.count,
+              timestamps.count > 1,
+              cumulativeDistances.count > 1,
+              zip(timestamps, timestamps.dropFirst()).allSatisfy({ pair in
+                  pair.0.isFinite && pair.1.isFinite && pair.1 >= pair.0
+              }) else {
+            return fallback
+        }
+
+        if splitProgress >= minimumCurrentSplitDistance,
+           let pace = pace(
+               from: splitStart,
+               to: currentDistance,
+               cumulativeDistances: cumulativeDistances,
+               timestamps: timestamps
+           ) {
+            return CurrentSplit(index: splitIndex, secondsPerKilometre: pace, source: .actual)
+        }
+
+        if splitIndex > 1,
+           let pace = pace(
+               from: splitStart - unitDistance,
+               to: splitStart,
+               cumulativeDistances: cumulativeDistances,
+               timestamps: timestamps
+           ) {
+            return CurrentSplit(index: splitIndex, secondsPerKilometre: pace, source: .previous)
+        }
+
+        let rollingStart = max(splitStart, currentDistance - rollingWindowDistance)
+        if currentDistance - rollingStart >= minimumSampleDistance,
+           let pace = pace(
+               from: rollingStart,
+               to: currentDistance,
+               cumulativeDistances: cumulativeDistances,
+               timestamps: timestamps
+           ) {
+            return CurrentSplit(index: splitIndex, secondsPerKilometre: pace, source: .rolling)
+        }
+
+        return fallback
+    }
+
+    private static func pace(
+        from startDistance: Double,
+        to endDistance: Double,
+        cumulativeDistances: [Double],
+        timestamps: [TimeInterval]
+    ) -> Double? {
+        let travelled = endDistance - startDistance
+        guard travelled > 0,
+              let startTime = interpolatedTime(
+                  atDistance: startDistance,
+                  cumulativeDistances: cumulativeDistances,
+                  timestamps: timestamps
+              ),
+              let endTime = interpolatedTime(
+                  atDistance: endDistance,
+                  cumulativeDistances: cumulativeDistances,
+                  timestamps: timestamps
+              ) else { return nil }
+
+        let elapsed = endTime - startTime
+        guard elapsed > 0 else { return nil }
+        let secondsPerKilometre = elapsed / travelled * 1_000
+        guard plausibleSecondsPerKilometre.contains(secondsPerKilometre) else { return nil }
+        return secondsPerKilometre
+    }
+
+    private static func interpolatedTime(
+        atDistance distance: Double,
+        cumulativeDistances: [Double],
+        timestamps: [TimeInterval]
+    ) -> TimeInterval? {
+        guard let firstDistance = cumulativeDistances.first,
+              let lastDistance = cumulativeDistances.last,
+              distance >= firstDistance,
+              distance <= lastDistance else { return nil }
+
+        let upperIndex = cumulativeDistances.partitioningIndex { $0 >= distance }
+        guard upperIndex < cumulativeDistances.count else { return timestamps.last }
+        guard upperIndex > 0 else { return timestamps.first }
+
+        let lowerIndex = upperIndex - 1
+        let segmentDistance = cumulativeDistances[upperIndex] - cumulativeDistances[lowerIndex]
+        guard segmentDistance > 0 else { return timestamps[upperIndex] }
+        let progress = (distance - cumulativeDistances[lowerIndex]) / segmentDistance
+        return timestamps[lowerIndex] + (timestamps[upperIndex] - timestamps[lowerIndex]) * progress
+    }
+
+    private static func safeAverage(_ average: Double) -> Double {
+        average.isFinite && average > 0 ? average : 0
+    }
+}
+
 public enum RunFormatting {
     private static let metresPerMile = 1_609.344
     private static let feetPerMetre = 3.280_84
@@ -311,6 +453,22 @@ public enum RunFormatting {
 
         let roundedSeconds = Int(seconds.rounded())
         return String(format: "%d:%02d %@", roundedSeconds / 60, roundedSeconds % 60, suffix)
+    }
+
+    public static func currentSplit(_ split: CurrentSplit, units: UnitPreference) -> String {
+        let splitName = units == .metric ? "Km" : "Mi"
+        let qualifier: String
+        switch split.source {
+        case .actual:
+            qualifier = ""
+        case .previous:
+            qualifier = "prev "
+        case .rolling:
+            qualifier = "rolling "
+        case .average:
+            qualifier = "avg "
+        }
+        return "\(splitName) \(split.index) · \(qualifier)\(pace(secondsPerKilometre: split.secondsPerKilometre, units: units))"
     }
 
     public static func duration(seconds: TimeInterval) -> String {

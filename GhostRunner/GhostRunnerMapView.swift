@@ -59,9 +59,13 @@ struct GhostRunnerMapView: View {
             }
 
             HStack {
+                stat("CURRENT SPLIT", viewModel.formattedCurrentSplit)
+                stat("AVG PACE", viewModel.formattedPace)
+            }
+
+            HStack {
                 stat("DISTANCE", viewModel.formattedDistance)
                 stat("DURATION", viewModel.formattedDuration)
-                stat("AVG PACE", viewModel.formattedPace)
                 stat("ELEVATION", viewModel.formattedElevationGain)
             }
 
