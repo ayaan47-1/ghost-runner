@@ -10,7 +10,7 @@ final class GhostRunnerViewModel {
         case idle
         case loading
         case ready
-        case empty(String)
+        case empty(title: String, message: String)
         case failed(String)
     }
 
@@ -19,6 +19,7 @@ final class GhostRunnerViewModel {
     private(set) var recentRuns: [HKWorkout] = []
     var selectedWorkout: HKWorkout?
     private(set) var routeCoordinates: [CLLocationCoordinate2D] = []
+    private(set) var ghostCoordinate: CLLocationCoordinate2D?
     private(set) var elevationGainMetres: Double?
     var ghostCoordinateIndex = 0
     private(set) var isPlaying = false
@@ -28,7 +29,9 @@ final class GhostRunnerViewModel {
 
     private let healthKitManager: HealthKitManager
     private var playbackTask: Task<Void, Never>?
-    private var playbackPosition = 0.0
+    private var playbackDistance = 0.0
+    private var routePath = RoutePath(points: [])
+    private var selectionGeneration = SelectionGeneration()
 
     init(healthKitManager: HealthKitManager = HealthKitManager()) {
         self.healthKitManager = healthKitManager
@@ -81,7 +84,10 @@ final class GhostRunnerViewModel {
             try await healthKitManager.requestAuthorization()
             recentRuns = try await healthKitManager.fetchRecentRuns()
             guard let first = recentRuns.first else {
-                loadState = .empty("No readable running workouts were found. Check Health access or record a run first.")
+                loadState = .empty(
+                    title: "No Readable Runs",
+                    message: "No readable running workouts were found. Check Health access or record a run first."
+                )
                 return
             }
             await selectWorkout(first)
@@ -91,23 +97,34 @@ final class GhostRunnerViewModel {
     }
 
     func selectWorkout(_ workout: HKWorkout) async {
+        let generation = selectionGeneration.begin()
         stopPlayback()
         selectedWorkout = workout
         routeCoordinates = []
+        routePath = RoutePath(points: [])
+        ghostCoordinate = nil
         elevationGainMetres = nil
         ghostCoordinateIndex = 0
-        playbackPosition = 0
+        playbackDistance = 0
         loadState = .loading
 
         do {
             let route = try await healthKitManager.fetchRouteData(for: workout)
+            guard selectionGeneration.isCurrent(generation) else { return }
             routeCoordinates = route.coordinates
+            routePath = route.path
+            ghostCoordinate = route.coordinates.first
             elevationGainMetres = route.elevationGainMetres
             loadState = .ready
             isWorkoutPickerPresented = false
         } catch HealthKitManagerError.noRoute {
-            loadState = .empty(HealthKitManagerError.noRoute.localizedDescription)
+            guard selectionGeneration.isCurrent(generation) else { return }
+            loadState = .empty(
+                title: "No Route",
+                message: HealthKitManagerError.noRoute.localizedDescription
+            )
         } catch {
+            guard selectionGeneration.isCurrent(generation) else { return }
             loadState = .failed(error.localizedDescription)
         }
     }
@@ -124,7 +141,8 @@ final class GhostRunnerViewModel {
     func scrub(to value: Double) {
         let index = PlaybackMath.scrubbedIndex(for: value, routeCount: routeCoordinates.count)
         ghostCoordinateIndex = index
-        playbackPosition = Double(index)
+        playbackDistance = routePath.distance(at: index)
+        updateGhostCoordinate()
     }
 
     private func startPlayback() {
@@ -146,15 +164,17 @@ final class GhostRunnerViewModel {
                 let elapsed = previous.duration(to: now).seconds
                 previous = now
 
-                let duration = max(1, self.selectedWorkout?.duration ?? 1)
-                let pointsPerSecond = Double(self.routeCoordinates.count - 1) / duration
-                self.playbackPosition += elapsed * self.playbackSpeed * pointsPerSecond
-                self.ghostCoordinateIndex = PlaybackMath.scrubbedIndex(
-                    for: self.playbackPosition,
-                    routeCount: self.routeCoordinates.count
+                self.playbackDistance = PlaybackMath.advancedDistance(
+                    from: self.playbackDistance,
+                    elapsed: elapsed,
+                    speed: self.playbackSpeed,
+                    routeDistance: self.routePath.totalDistance,
+                    workoutDuration: self.selectedWorkout?.duration ?? 0
                 )
+                self.ghostCoordinateIndex = self.routePath.index(atDistance: self.playbackDistance)
+                self.updateGhostCoordinate()
 
-                if self.ghostCoordinateIndex >= self.routeCoordinates.count - 1 {
+                if self.playbackDistance >= self.routePath.totalDistance {
                     self.stopPlayback()
                 }
             }
@@ -165,6 +185,14 @@ final class GhostRunnerViewModel {
         isPlaying = false
         playbackTask?.cancel()
         playbackTask = nil
+    }
+
+    private func updateGhostCoordinate() {
+        guard let point = routePath.point(atDistance: playbackDistance) else {
+            ghostCoordinate = nil
+            return
+        }
+        ghostCoordinate = CLLocationCoordinate2D(latitude: point.latitude, longitude: point.longitude)
     }
 }
 

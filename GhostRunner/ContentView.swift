@@ -12,8 +12,8 @@ struct ContentView: View {
                 ProgressView("Loading runs…")
                     .padding(20)
                     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
-            case .empty(let message):
-                emptyState(title: "No Route", message: message, systemImage: "map")
+            case .empty(let title, let message):
+                emptyState(title: title, message: message, systemImage: "map")
             case .failed(let message):
                 emptyState(title: "Health Access Needed", message: message, systemImage: "heart.slash")
             case .ready:

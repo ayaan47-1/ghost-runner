@@ -36,6 +36,47 @@ final class GhostRunnerLogicTests: XCTestCase {
         XCTAssertNil(RouteMath.fittedRegion(for: []))
     }
 
+    func testRouteRegionUsesShortestSpanAcrossDateLine() throws {
+        let region = try XCTUnwrap(RouteMath.fittedRegion(for: [
+            GeoPoint(latitude: 10, longitude: 179.9),
+            GeoPoint(latitude: 10.1, longitude: -179.9)
+        ]))
+
+        XCTAssertEqual(abs(region.center.longitude), 180, accuracy: 0.000_001)
+        XCTAssertEqual(region.longitudeDelta, 0.25, accuracy: 0.000_001)
+    }
+
+    func testRoutePartsAndSamplesMergeChronologically() {
+        let parts = [
+            [
+                TimedRoutePoint(point: GeoPoint(latitude: 0, longitude: 3), timestamp: 3),
+                TimedRoutePoint(point: GeoPoint(latitude: 0, longitude: 2), timestamp: 2)
+            ],
+            [
+                TimedRoutePoint(point: GeoPoint(latitude: 0, longitude: 1), timestamp: 1),
+                TimedRoutePoint(point: GeoPoint(latitude: 0, longitude: 0), timestamp: 0)
+            ]
+        ]
+
+        XCTAssertEqual(
+            RouteMath.mergedChronologically(parts: parts).map(\.point.longitude),
+            [0, 1, 2, 3]
+        )
+    }
+
+    func testRoutePathInterpolatesByPhysicalDistanceOnSparseSegments() throws {
+        let path = RoutePath(points: [
+            GeoPoint(latitude: 0, longitude: 0),
+            GeoPoint(latitude: 0, longitude: 0.001),
+            GeoPoint(latitude: 0, longitude: 0.010)
+        ])
+
+        let halfway = try XCTUnwrap(path.point(atDistance: path.totalDistance / 2))
+
+        XCTAssertEqual(halfway.latitude, 0, accuracy: 0.000_001)
+        XCTAssertEqual(halfway.longitude, 0.005, accuracy: 0.000_01)
+    }
+
     func testPlaybackAdvancesAtSupportedSpeeds() {
         let expectations = [(1.0, 6), (2.0, 12), (5.0, 30), (10.0, 60)]
         for (speed, expected) in expectations {
@@ -76,6 +117,40 @@ final class GhostRunnerLogicTests: XCTestCase {
             ),
             0
         )
+    }
+
+    func testPlaybackAdvancesDistanceFromAveragePaceAndSpeed() {
+        XCTAssertEqual(
+            PlaybackMath.advancedDistance(
+                from: 100,
+                elapsed: 10,
+                speed: 2,
+                routeDistance: 1_000,
+                workoutDuration: 500
+            ),
+            140,
+            accuracy: 0.000_001
+        )
+        XCTAssertEqual(
+            PlaybackMath.advancedDistance(
+                from: 990,
+                elapsed: 10,
+                speed: 1,
+                routeDistance: 1_000,
+                workoutDuration: 500
+            ),
+            1_000,
+            accuracy: 0.000_001
+        )
+    }
+
+    func testSelectionGenerationRejectsSupersededLoad() {
+        var generation = SelectionGeneration()
+        let first = generation.begin()
+        let second = generation.begin()
+
+        XCTAssertFalse(generation.isCurrent(first))
+        XCTAssertTrue(generation.isCurrent(second))
     }
 
     func testScrubberClampsAndRoundsToCoordinate() {

@@ -5,24 +5,19 @@ import Foundation
 struct WorkoutRouteData: Sendable {
     let coordinates: [CLLocationCoordinate2D]
     let elevationGainMetres: Double?
-}
-
-private struct RouteLocationSample: Sendable {
-    let coordinate: CLLocationCoordinate2D
-    let altitude: Double
-    let hasReliableAltitude: Bool
+    let path: RoutePath
 }
 
 private final class RouteQueryAccumulator: @unchecked Sendable {
     private let lock = NSLock()
-    private var samples: [RouteLocationSample] = []
+    private var samples: [TimedRoutePoint] = []
     private var isFinished = false
 
     func receive(
-        batch: [RouteLocationSample],
+        batch: [TimedRoutePoint],
         done: Bool,
         error: Error?,
-        continuation: CheckedContinuation<[RouteLocationSample], Error>
+        continuation: CheckedContinuation<[TimedRoutePoint], Error>
     ) {
         lock.lock()
         guard !isFinished else {
@@ -125,18 +120,27 @@ final class HealthKitManager {
         let routes = try await fetchRoutes(for: workout)
         guard !routes.isEmpty else { throw HealthKitManagerError.noRoute }
 
-        var samples: [RouteLocationSample] = []
+        var parts: [[TimedRoutePoint]] = []
         for route in routes {
-            samples.append(contentsOf: try await fetchLocations(for: route))
+            parts.append(try await fetchLocations(for: route))
         }
-        guard !samples.isEmpty else { throw HealthKitManagerError.noRoute }
 
-        return await Task.detached(priority: .userInitiated) {
-            WorkoutRouteData(
-                coordinates: samples.map(\.coordinate),
-                elevationGainMetres: Self.elevationGain(from: samples)
+        let result = await Task.detached(priority: .userInitiated) { () -> WorkoutRouteData? in
+            let samples = RouteMath.mergedChronologically(parts: parts)
+            guard !samples.isEmpty else { return nil }
+            let path = RoutePath(points: samples.map(\.point))
+            return WorkoutRouteData(
+                coordinates: path.points.map {
+                    CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude)
+                },
+                elevationGainMetres: Self.elevationGain(from: samples),
+                path: path
             )
         }.value
+        guard let result else {
+            throw HealthKitManagerError.noRoute
+        }
+        return result
     }
 
     private func fetchRoutes(for workout: HKWorkout) async throws -> [HKWorkoutRoute] {
@@ -146,7 +150,7 @@ final class HealthKitManager {
                 sampleType: HKSeriesType.workoutRoute(),
                 predicate: predicate,
                 limit: HKObjectQueryNoLimit,
-                sortDescriptors: nil
+                sortDescriptors: [NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)]
             ) { _, samples, error in
                 if let error {
                     continuation.resume(throwing: error)
@@ -158,15 +162,16 @@ final class HealthKitManager {
         }
     }
 
-    private func fetchLocations(for route: HKWorkoutRoute) async throws -> [RouteLocationSample] {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<[RouteLocationSample], Error>) in
+    private func fetchLocations(for route: HKWorkoutRoute) async throws -> [TimedRoutePoint] {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<[TimedRoutePoint], Error>) in
             let accumulator = RouteQueryAccumulator()
             let query = HKWorkoutRouteQuery(route: route) { _, locations, done, error in
                 let batch = (locations ?? []).map {
-                    RouteLocationSample(
-                        coordinate: $0.coordinate,
+                    TimedRoutePoint(
+                        point: GeoPoint(latitude: $0.coordinate.latitude, longitude: $0.coordinate.longitude),
                         altitude: $0.altitude,
-                        hasReliableAltitude: $0.verticalAccuracy >= 0
+                        hasReliableAltitude: $0.verticalAccuracy >= 0,
+                        timestamp: $0.timestamp.timeIntervalSinceReferenceDate
                     )
                 }
                 accumulator.receive(
@@ -180,7 +185,7 @@ final class HealthKitManager {
         }
     }
 
-    nonisolated private static func elevationGain(from locations: [RouteLocationSample]) -> Double? {
+    nonisolated private static func elevationGain(from locations: [TimedRoutePoint]) -> Double? {
         let reliable = locations.filter(\.hasReliableAltitude)
         guard reliable.count > 1 else { return nil }
 

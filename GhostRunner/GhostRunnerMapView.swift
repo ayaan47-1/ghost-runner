@@ -12,8 +12,8 @@ struct GhostRunnerMapView: View {
                     .stroke(.blue.gradient, lineWidth: 5)
             }
 
-            if viewModel.routeCoordinates.indices.contains(viewModel.ghostCoordinateIndex) {
-                Annotation("Ghost", coordinate: viewModel.routeCoordinates[viewModel.ghostCoordinateIndex]) {
+            if let ghostCoordinate = viewModel.ghostCoordinate {
+                Annotation("Ghost", coordinate: ghostCoordinate) {
                     GhostPuck()
                 }
                 .annotationTitles(.hidden)
@@ -61,7 +61,7 @@ struct GhostRunnerMapView: View {
             HStack {
                 stat("DISTANCE", viewModel.formattedDistance)
                 stat("DURATION", viewModel.formattedDuration)
-                stat("PACE", viewModel.formattedPace)
+                stat("AVG PACE", viewModel.formattedPace)
                 stat("ELEVATION", viewModel.formattedElevationGain)
             }
 
