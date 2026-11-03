@@ -9,6 +9,7 @@ enum GhostRunnerPalette {
     static let inkSecondary = dynamic(light: 0x526576, dark: 0xC6D4DF)
     static let hairline = dynamic(light: 0xD9E2EA, dark: 0x405369)
     static let actionBlue = dynamic(light: 0x2856A8, dark: 0x8BB7FF)
+    static let onAction = dynamic(light: 0xFFFFFF, dark: 0x101923)
     static let route = actionBlue
     static let routeCasing = dynamic(light: 0xFFFFFF, dark: 0x101923)
     static let ghostCore = Color(red: 48 / 255, green: 213 / 255, blue: 192 / 255)
@@ -63,13 +64,15 @@ struct GhostRunnerMapView: View {
                 showsRecenter = !approximatelyEqual(context.region, fittedRegion)
             }
             .overlay(alignment: .top) {
-                runSummaryPanel(layoutMode: layoutMode)
-                    .frame(height: 118)
-                    .padding(.horizontal, 20)
-                    .padding(.top, geometry.safeAreaInsets.top + 8)
+                if viewModel.loadState == .ready {
+                    runSummaryPanel(layoutMode: layoutMode)
+                        .frame(height: 118)
+                        .padding(.horizontal, 20)
+                        .padding(.top, geometry.safeAreaInsets.top + 8)
+                }
             }
             .overlay(alignment: .bottomTrailing) {
-                if showsRecenter && !viewModel.routeCoordinates.isEmpty {
+                if viewModel.loadState == .ready && showsRecenter && !viewModel.routeCoordinates.isEmpty {
                     Button {
                         fitRoute(in: geometry.size, safeAreaTop: geometry.safeAreaInsets.top)
                     } label: {
@@ -88,9 +91,11 @@ struct GhostRunnerMapView: View {
                 }
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                controlDock(layoutMode: layoutMode)
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 12)
+                if viewModel.loadState == .ready {
+                    controlDock(layoutMode: layoutMode)
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 12)
+                }
             }
         }
         .sheet(isPresented: $viewModel.isSplitsPresented) { SplitsSheet(viewModel: viewModel) }
@@ -166,7 +171,7 @@ struct GhostRunnerMapView: View {
                         .font(.system(size: 20, weight: .bold)).frame(width: 52, height: 52)
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(.white)
+                .foregroundStyle(GhostRunnerPalette.onAction)
                 .background(GhostRunnerPalette.actionBlue, in: Circle())
                 .accessibilityLabel(viewModel.isPlaying ? "Pause ghost" : "Play ghost")
                 Slider(value: Binding(get: { viewModel.scrubberValue }, set: { viewModel.scrubberValue = $0 }),

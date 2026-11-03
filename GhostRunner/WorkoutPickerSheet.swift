@@ -12,7 +12,7 @@ struct WorkoutPickerSheet: View {
             VStack(spacing: 0) {
                 HStack {
                     Text("Recent Runs")
-                        .font(.system(size: 28, weight: .bold))
+                        .font(.title.weight(.semibold))
                     Spacer()
                     Button("Close") { dismiss() }
                         .frame(minWidth: 44, minHeight: 44)
@@ -36,9 +36,9 @@ struct WorkoutPickerSheet: View {
                             HStack {
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(workout.startDate, format: .dateTime.weekday(.abbreviated).month().day())
-                                        .font(.system(size: 16, weight: .semibold))
+                                        .font(.body.weight(.semibold))
                                     Text(workout.startDate, format: .dateTime.hour().minute())
-                                        .font(.system(size: 13))
+                                        .font(.footnote)
                                         .foregroundStyle(.secondary)
                                 }
                                 Spacer()
@@ -47,10 +47,10 @@ struct WorkoutPickerSheet: View {
                                         metres: workout.totalDistance?.doubleValue(for: .meter()) ?? 0,
                                         units: Locale.current.measurementSystem == .metric ? .metric : .imperial
                                     ))
-                                    .font(.system(size: 17, weight: .semibold, design: .rounded))
+                                    .font(.system(.body, design: .rounded, weight: .semibold))
                                     .monospacedDigit()
                                     Text(RunFormatting.duration(seconds: workout.duration))
-                                        .font(.system(size: 13))
+                                        .font(.footnote)
                                         .foregroundStyle(.secondary)
                                 }
                                 if isSelected {
