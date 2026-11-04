@@ -179,26 +179,10 @@ final class HealthKitManager {
         }
 
         try Task.checkCancellation()
+        let partsSnapshot = parts
         let result = await withTaskGroup(of: WorkoutRouteData?.self) { group in
-            group.addTask(priority: .userInitiated) {
-                guard !Task.isCancelled else { return nil }
-                let orderedParts = RouteMath.orderedPartsChronologically(parts: parts)
-                guard !Task.isCancelled else { return nil }
-                let samples = orderedParts.flatMap { $0 }
-                let path = RoutePath(parts: orderedParts.map { $0.map(\.point) })
-                guard !Task.isCancelled, path.isPlayable else { return nil }
-                let coordinateParts = path.parts.map { part in
-                    part.map { CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude) }
-                }
-                return WorkoutRouteData(
-                    coordinates: coordinateParts.flatMap { $0 },
-                    coordinateParts: coordinateParts,
-                    elevationGainMetres: ElevationMath.gain(parts: orderedParts),
-                    path: path,
-                    timestamps: samples.allSatisfy({ $0.timestamp.isFinite })
-                        ? samples.map(\.timestamp)
-                        : nil
-                )
+            group.addTask(priority: .userInitiated) { [partsSnapshot] in
+                Self.projectRoute(parts: partsSnapshot)
             }
             return await group.next() ?? nil
         }
@@ -206,6 +190,27 @@ final class HealthKitManager {
             throw HealthKitManagerError.noRoute
         }
         return result
+    }
+
+    nonisolated private static func projectRoute(parts: [[TimedRoutePoint]]) -> WorkoutRouteData? {
+        guard !Task.isCancelled else { return nil }
+        let orderedParts = RouteMath.orderedPartsChronologically(parts: parts)
+        guard !Task.isCancelled else { return nil }
+        let samples = orderedParts.flatMap { $0 }
+        let path = RoutePath(parts: orderedParts.map { $0.map(\.point) })
+        guard !Task.isCancelled, path.isPlayable else { return nil }
+        let coordinateParts = path.parts.map { part in
+            part.map { CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude) }
+        }
+        return WorkoutRouteData(
+            coordinates: coordinateParts.flatMap { $0 },
+            coordinateParts: coordinateParts,
+            elevationGainMetres: ElevationMath.gain(parts: orderedParts),
+            path: path,
+            timestamps: samples.allSatisfy({ $0.timestamp.isFinite })
+                ? samples.map(\.timestamp)
+                : nil
+        )
     }
 
     private func fetchRoutes(for workout: HKWorkout) async throws -> [HKWorkoutRoute] {
