@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">Ghost Runner app mark</title>
+  <desc id="desc">A geometric blue runner led by a speed line, with a mint ghost dash, on navy.</desc>
+  <defs>
+    <linearGradient id="runnerBlue" x1="160" y1="260" x2="815" y2="690" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2856A8"/>
+      <stop offset="1" stop-color="#3D7BEA"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1024" height="1024" fill="#101923"/>
+
+  <!-- The upper edge is both the runner's shoulder and a forward speed line. -->
+  <path fill="url(#runnerBlue)" d="M126 266H724L650 350H555L305 687H202L467 330H210Z"/>
+
+  <!-- Raised arm. -->
+  <path fill="url(#runnerBlue)" d="M594 338L650 278L716 340L775 278L836 331L718 451Z"/>
+
+  <!-- Bent forward leg, kept separate so the negative space stays crisp at small sizes. -->
+  <path fill="url(#runnerBlue)" d="M462 451L635 601L593 659L391 672L449 594L542 581L407 504Z"/>
+
+  <!-- The trailing mint dash is the ghost crossing the runner's path. -->
+  <path fill="#5EE6B8" d="M224 365H450L392 431H282Z"/>
+</svg>
