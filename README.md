@@ -1,48 +1,90 @@
 # Ghost Runner
 
-Ghost Runner is an iOS 17 SwiftUI prototype that reads outdoor running workouts and GPS routes from Apple Health, draws the selected route with MapKit, and replays a glowing ghost marker at 1×, 2×, 5×, or 10× speed.
+<img src="GhostRunner/Assets.xcassets/AppIcon.appiconset/ghost-runner-app-icon-1024.png" width="128" alt="Ghost Runner app icon">
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+Replay an outdoor Apple Health run on a map and race the moving ghost from that route.
+
+## Features
+
+- Replay a selected outdoor run with a ghost marker on its GPS route.
+- Play, pause, choose 1x, 2x, 5x, or 10x speed, drag the scrubber, and recenter the map.
+- View completed splits calculated from the route's observed timestamps when the data is available.
+- Choose runs in the Runs tab and manage local preferences and Health access in the Account tab.
+- Read the welcome guide on first launch or open it again from Account.
+- Choose automatic, metric, or imperial units and a default playback speed.
+- Use light and dark appearances, plus layouts that adapt to Dynamic Type accessibility sizes.
 
 ## Requirements
 
-- Xcode 27.1 or newer
-- An iOS 17+ simulator for build and logic tests
-- A physical iPhone with running workouts containing `HKWorkoutRoute` samples for live HealthKit route testing
+- iOS 17 or later
+- Xcode 16 or later
+- A physical iPhone with Apple Health running workouts that include GPS routes
 
-## Run
+The simulator can run the app and its tests, but it has no historical Health workouts. Use a real iPhone to test workout and route access.
 
-1. Open `GhostRunner.xcodeproj`.
-2. Select the `GhostRunner` scheme and an iPhone simulator or device.
-3. For a device build, select a development team for the app target.
-4. Build and run. Grant read access to Workouts and Workout Routes when prompted.
+## Build and run
 
-The simulator can build and run the interface and unit tests, but it normally has no historical Health route data. Use a physical device to verify Garmin-to-Apple-Health route ingestion.
+1. Open `GhostRunner.xcodeproj` in Xcode.
+2. Select the `GhostRunner` scheme and your iPhone.
+3. In **Signing & Capabilities**, choose your development team and set a bundle identifier that you own.
+4. Add the HealthKit capability if Xcode has not added it for your signing team.
+5. Build and run. Allow Ghost Runner to read Health workouts and workout routes when iOS asks.
 
-Command-line gates:
-
-```sh
-xcodebuild -project GhostRunner.xcodeproj -scheme GhostRunner \
-  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
-  -derivedDataPath /tmp/ghost-runner-derived CODE_SIGNING_ALLOWED=NO build
-
-xcodebuild test -project GhostRunner.xcodeproj -scheme GhostRunner \
-  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
-  -derivedDataPath /tmp/ghost-runner-derived CODE_SIGNING_ALLOWED=NO
-```
-
-The framework-independent logic can also be tested with:
+For a command-line device build, replace the placeholder values with your team identifier, bundle identifier, and iPhone name:
 
 ```sh
-swift test --disable-sandbox
+xcodebuild build \
+  -project GhostRunner.xcodeproj \
+  -scheme GhostRunner \
+  -destination 'platform=iOS,name=Your iPhone' \
+  DEVELOPMENT_TEAM=YOUR_TEAM_ID \
+  PRODUCT_BUNDLE_IDENTIFIER=com.example.YourGhostRunner
 ```
 
-## HealthKit configuration
+The project includes `GhostRunner/GhostRunner.entitlements`, which enables HealthKit. Your signing profile must also support that capability.
 
-`GhostRunner/Info.plist` contains:
+## Test
 
-- `NSHealthShareUsageDescription`: `Ghost Runner reads your running workouts and routes to replay past runs on a map.`
+Run the framework-independent logic tests with Swift Package Manager:
 
-`GhostRunner/GhostRunner.entitlements` contains:
+```sh
+swift test
+```
 
-- `com.apple.developer.healthkit`: `true`
+Run the app and logic tests on an installed simulator. Change the destination name if your Xcode installation does not have `iPhone 16 Pro`.
 
-The app requests read-only access to `HKWorkoutType.workoutType()` and `HKSeriesType.workoutRoute()`. It does not write Health data.
+```sh
+xcodebuild test \
+  -project GhostRunner.xcodeproj \
+  -scheme GhostRunner \
+  -destination 'platform=iOS Simulator,name=iPhone 16 Pro,OS=latest' \
+  CODE_SIGNING_ALLOWED=NO
+```
+
+## Project structure
+
+```text
+GhostRunner/
+  Assets.xcassets/          App icon and asset catalog
+  ContentView.swift         Tabs, welcome guide, Runs, and Account views
+  GhostRunnerMapView.swift  Map replay, controls, and split details
+  GhostRunnerViewModel.swift
+                            Health data loading and replay state
+  HealthKitManager.swift    Read-only HealthKit queries
+  Logic/                    Route, playback, split, format, and layout logic
+GhostRunnerTests/           Logic tests
+GhostRunner.xcodeproj/      Xcode project and app target settings
+Package.swift               Swift Package Manager logic-test package
+```
+
+## Privacy
+
+Ghost Runner requests read-only HealthKit access. It reads running workouts and workout routes. It does not write Health data.
+
+The app has no network client. It keeps app preferences on the device and does not upload workout or route data.
+
+## License
+
+MIT, see [LICENSE](LICENSE).
