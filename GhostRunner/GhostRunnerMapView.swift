@@ -117,6 +117,14 @@ struct GhostRunnerMapView: View {
                     }
                 }
                 Spacer()
+                Button { viewModel.isAccountPresented = true } label: {
+                    Image(systemName: "person.crop.circle")
+                        .font(.system(size: 18, weight: .semibold))
+                        .frame(width: 44, height: 44)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(GhostRunnerPalette.actionBlue)
+                .accessibilityLabel("Account")
                 Button { viewModel.isWorkoutPickerPresented = true } label: {
                     Image(systemName: "clock.arrow.circlepath")
                         .font(.system(size: 18, weight: .semibold))

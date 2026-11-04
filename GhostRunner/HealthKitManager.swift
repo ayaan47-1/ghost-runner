@@ -93,14 +93,21 @@ final class HealthKitManager {
     }
 
     func fetchRecentRuns(limit: Int = 10) async throws -> [HKWorkout] {
-        let safeLimit = max(1, limit)
+        try await fetchRuns(limit: max(1, limit))
+    }
+
+    func fetchAllRuns() async throws -> [HKWorkout] {
+        try await fetchRuns(limit: HKObjectQueryNoLimit)
+    }
+
+    private func fetchRuns(limit: Int) async throws -> [HKWorkout] {
         return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<[HKWorkout], Error>) in
             let predicate = HKQuery.predicateForWorkouts(with: .running)
             let sort = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: false)
             let query = HKSampleQuery(
                 sampleType: HKWorkoutType.workoutType(),
                 predicate: predicate,
-                limit: safeLimit,
+                limit: limit,
                 sortDescriptors: [sort]
             ) { _, samples, error in
                 if let error {

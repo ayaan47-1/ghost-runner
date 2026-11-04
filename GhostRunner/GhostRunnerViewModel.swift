@@ -27,6 +27,13 @@ final class GhostRunnerViewModel {
     var loadState: LoadState = .idle
     var isWorkoutPickerPresented = false
     var isSplitsPresented = false
+    var isAccountPresented = false
+    var isWelcomeGuidePresented = false
+    var unitSetting: UnitSetting = .automatic
+    private(set) var defaultPlaybackSpeed = 1.0
+    private(set) var runningTotals = RunningTotals.empty
+    private(set) var isRunningTotalsLoading = false
+    private(set) var runningTotalsError: String?
     private(set) var selectedSplitIndex: Int?
     private(set) var routePresentationID: UInt64 = 0
 
@@ -52,7 +59,7 @@ final class GhostRunnerViewModel {
     }
 
     var unitPreference: UnitPreference {
-        Locale.current.measurementSystem == .metric ? .metric : .imperial
+        unitSetting.resolve(systemUsesMetric: Locale.current.measurementSystem == .metric)
     }
 
     var formattedDistance: String {
@@ -100,6 +107,48 @@ final class GhostRunnerViewModel {
             timestamps: routeTimestamps,
             units: unitPreference
         )
+    }
+
+    var healthAccessSummary: String {
+        switch loadState {
+        case .idle: "Not requested"
+        case .loading: "Checking Health access"
+        case .ready: "Health workouts available"
+        case .empty: "Health access requested"
+        case .failed: "Health data unavailable"
+        }
+    }
+
+    func applyPreferences(unitSetting: UnitSetting, defaultPlaybackSpeed: Double) {
+        self.unitSetting = unitSetting
+        let speed = playbackSpeeds.contains(defaultPlaybackSpeed) ? defaultPlaybackSpeed : 1
+        self.defaultPlaybackSpeed = speed
+        if !isPlaying {
+            playbackSpeed = speed
+        }
+    }
+
+    func loadRunningTotals() async {
+        guard !isRunningTotalsLoading else { return }
+        isRunningTotalsLoading = true
+        runningTotalsError = nil
+        defer { isRunningTotalsLoading = false }
+        do {
+            let workouts = try await healthKitManager.fetchAllRuns()
+            let summaries = workouts.map {
+                RunSummary(
+                    startDate: $0.startDate,
+                    distanceMetres: $0.totalDistance?.doubleValue(for: .meter()) ?? 0
+                )
+            }
+            runningTotals = RunningTotals.aggregate(
+                runs: summaries,
+                now: Date(),
+                calendar: .current
+            )
+        } catch {
+            runningTotalsError = error.localizedDescription
+        }
     }
 
     func load() async {
@@ -287,6 +336,7 @@ final class GhostRunnerViewModel {
         ghostCoordinateIndex = 0
         playbackDistance = 0
         selectedSplitIndex = nil
+        playbackSpeed = defaultPlaybackSpeed
         routePresentationID = routePresentationGeneration.begin()
         loadState = .ready
         isWorkoutPickerPresented = false

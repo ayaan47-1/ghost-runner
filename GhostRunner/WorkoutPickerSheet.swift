@@ -4,6 +4,7 @@ import SwiftUI
 struct WorkoutPickerSheet: View {
     let workouts: [HKWorkout]
     let selectedWorkout: HKWorkout?
+    let units: UnitPreference
     let onSelect: (UUID) -> Void
     @Environment(\.dismiss) private var dismiss
 
@@ -45,7 +46,7 @@ struct WorkoutPickerSheet: View {
                                 VStack(alignment: .trailing, spacing: 4) {
                                     Text(RunFormatting.distance(
                                         metres: workout.totalDistance?.doubleValue(for: .meter()) ?? 0,
-                                        units: Locale.current.measurementSystem == .metric ? .metric : .imperial
+                                        units: units
                                     ))
                                     .font(.system(.body, design: .rounded, weight: .semibold))
                                     .monospacedDigit()
