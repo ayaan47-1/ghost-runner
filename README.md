@@ -13,7 +13,7 @@ Ghost Runner is an iOS 17 SwiftUI prototype that reads outdoor running workouts 
 1. Open `GhostRunner.xcodeproj`.
 2. Select the `GhostRunner` scheme and an iPhone simulator or device.
 3. For a device build, select a development team for the app target.
-4. Build and run. Grant read access to Workouts, Workout Routes, and Heart Rate when prompted.
+4. Build and run. Grant read access to Workouts and Workout Routes when prompted.
 
 The simulator can build and run the interface and unit tests, but it normally has no historical Health route data. Use a physical device to verify Garmin-to-Apple-Health route ingestion.
 
@@ -39,10 +39,10 @@ swift test --disable-sandbox
 
 `GhostRunner/Info.plist` contains:
 
-- `NSHealthShareUsageDescription`: `Ghost Runner reads your running workouts, routes, and heart rate to replay past runs on a map.`
+- `NSHealthShareUsageDescription`: `Ghost Runner reads your running workouts and routes to replay past runs on a map.`
 
 `GhostRunner/GhostRunner.entitlements` contains:
 
 - `com.apple.developer.healthkit`: `true`
 
-The app requests read-only access to `HKWorkoutType.workoutType()`, `HKSeriesType.workoutRoute()`, and `HKQuantityType(.heartRate)`. It does not write Health data.
+The app requests read-only access to `HKWorkoutType.workoutType()` and `HKSeriesType.workoutRoute()`. It does not write Health data.

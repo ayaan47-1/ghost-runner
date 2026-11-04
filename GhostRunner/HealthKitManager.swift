@@ -75,12 +75,9 @@ final class HealthKitManager {
 
         let workout = HKWorkoutType.workoutType()
         let route = HKSeriesType.workoutRoute()
-        guard let heartRate = HKQuantityType.quantityType(forIdentifier: .heartRate) else {
-            throw HealthKitManagerError.healthDataUnavailable
-        }
 
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            healthStore.requestAuthorization(toShare: [], read: [workout, route, heartRate]) { success, error in
+            healthStore.requestAuthorization(toShare: [], read: [workout, route]) { success, error in
                 if let error {
                     continuation.resume(throwing: error)
                 } else if success {

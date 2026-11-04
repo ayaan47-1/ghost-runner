@@ -23,7 +23,7 @@
     <key>LSRequiresIPhoneOS</key>
     <true/>
     <key>NSHealthShareUsageDescription</key>
-    <string>Ghost Runner reads your running workouts, routes, and heart rate to replay past runs on a map.</string>
+	<string>Ghost Runner reads your running workouts and routes to replay past runs on a map.</string>
     <key>UIApplicationSceneManifest</key>
     <dict>
         <key>UIApplicationSupportsMultipleScenes</key>
