@@ -1,5 +1,25 @@
 import Foundation
 
+public struct AccountLinkSetting: Identifiable, Equatable, Sendable {
+    public let title: String
+    public let url: URL
+    public var id: String { title }
+
+    public init(title: String, url: URL) {
+        self.title = title
+        self.url = url
+    }
+}
+
+public enum AppSettings {
+    public static let privacyPolicyURL = URL(
+        string: "https://github.com/ayaan47-1/ghost-runner/blob/main/PRIVACY.md"
+    )!
+    public static let accountLinks = [
+        AccountLinkSetting(title: "Privacy Policy", url: privacyPolicyURL)
+    ]
+}
+
 public struct GeoPoint: Equatable, Sendable {
     public let latitude: Double
     public let longitude: Double

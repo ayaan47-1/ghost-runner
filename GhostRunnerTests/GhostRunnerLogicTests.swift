@@ -6,6 +6,15 @@ import XCTest
 #endif
 
 final class GhostRunnerLogicTests: XCTestCase {
+    func testAccountSettingsExposePrivacyPolicy() {
+        let expectedURL = "https://github.com/ayaan47-1/ghost-runner/blob/main/PRIVACY.md"
+
+        XCTAssertEqual(AppSettings.privacyPolicyURL.absoluteString, expectedURL)
+        XCTAssertTrue(AppSettings.accountLinks.contains {
+            $0.title == "Privacy Policy" && $0.url.absoluteString == expectedURL
+        })
+    }
+
     func testWelcomeGateShowsBeforeFirstAuthorizationAndCanBeReopened() {
         XCTAssertTrue(WelcomeGate.shouldPresent(hasSeenWelcome: false, reopenRequested: false))
         XCTAssertFalse(WelcomeGate.shouldPresent(hasSeenWelcome: true, reopenRequested: false))

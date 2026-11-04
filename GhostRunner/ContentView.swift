@@ -401,6 +401,20 @@ private struct AccountView: View {
             }
             .font(.body)
             .frame(minHeight: 44)
+            Divider().overlay(GhostRunnerPalette.hairline)
+            ForEach(AppSettings.accountLinks) { link in
+                Link(destination: link.url) {
+                    HStack {
+                        Label(link.title, systemImage: "hand.raised")
+                        Spacer()
+                        Image(systemName: "arrow.up.right")
+                            .font(.footnote.weight(.semibold))
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("Opens in your web browser")
+            }
         }
     }
 
@@ -480,7 +494,7 @@ private struct AccountView: View {
     }
 
     private var appVersion: String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0"
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0.0"
     }
 
     private func applyPreferences() {
