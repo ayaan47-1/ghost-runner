@@ -116,7 +116,7 @@ final class GhostRunnerLogicTests: XCTestCase {
         XCTAssertEqual(adjusted.center.longitude, 20, accuracy: 0.000_001)
     }
 
-    func testRoutePartsAndSamplesMergeChronologically() {
+    func testRoutePartsAndSamplesSortChronologicallyWithoutFlattening() {
         let parts = [
             [
                 TimedRoutePoint(point: GeoPoint(latitude: 0, longitude: 3), timestamp: 3),
@@ -128,10 +128,8 @@ final class GhostRunnerLogicTests: XCTestCase {
             ]
         ]
 
-        XCTAssertEqual(
-            RouteMath.mergedChronologically(parts: parts).map(\.point.longitude),
-            [0, 1, 2, 3]
-        )
+        let ordered = RouteMath.orderedPartsChronologically(parts: parts)
+        XCTAssertEqual(ordered.map { $0.map(\.point.longitude) }, [[0, 1], [2, 3]])
     }
 
     func testRoutePathInterpolatesByPhysicalDistanceOnSparseSegments() throws {
@@ -145,6 +143,39 @@ final class GhostRunnerLogicTests: XCTestCase {
 
         XCTAssertEqual(halfway.latitude, 0, accuracy: 0.000_001)
         XCTAssertEqual(halfway.longitude, 0.005, accuracy: 0.000_01)
+    }
+
+    func testSegmentedRouteExcludesAndDoesNotInterpolateAcrossPartGaps() throws {
+        let first = [
+            GeoPoint(latitude: 0, longitude: 0),
+            GeoPoint(latitude: 0, longitude: 0.001)
+        ]
+        let second = [
+            GeoPoint(latitude: 0, longitude: 0.101),
+            GeoPoint(latitude: 0, longitude: 0.102)
+        ]
+        let path = RoutePath(parts: [first, second])
+
+        XCTAssertEqual(path.totalDistance, 222.39, accuracy: 1)
+        XCTAssertEqual(path.parts, [first, second])
+        XCTAssertEqual(path.cumulativeDistances[1], path.cumulativeDistances[2], accuracy: 0.000_001)
+        XCTAssertEqual(path.point(atDistance: path.cumulativeDistances[1]), second[0])
+    }
+
+    func testRoutePlayabilityRejectsSingletonStationaryAndNonfiniteRoutes() {
+        XCTAssertFalse(RoutePath(points: [GeoPoint(latitude: 0, longitude: 0)]).isPlayable)
+        XCTAssertFalse(RoutePath(points: [
+            GeoPoint(latitude: 0, longitude: 0),
+            GeoPoint(latitude: 0, longitude: 0)
+        ]).isPlayable)
+        XCTAssertFalse(RoutePath(points: [
+            GeoPoint(latitude: .nan, longitude: 0),
+            GeoPoint(latitude: 0, longitude: 1)
+        ]).isPlayable)
+        XCTAssertTrue(RoutePath(points: [
+            GeoPoint(latitude: 0, longitude: 0),
+            GeoPoint(latitude: 0, longitude: 0.001)
+        ]).isPlayable)
     }
 
     func testPlaybackAdvancesAtSupportedSpeeds() {
@@ -212,6 +243,31 @@ final class GhostRunnerLogicTests: XCTestCase {
             1_000,
             accuracy: 0.000_001
         )
+    }
+
+    func testPlaybackRejectsZeroAndNonfiniteWorkoutDurations() {
+        XCTAssertFalse(PlaybackMath.canStart(routeDistance: 1_000, workoutDuration: 0))
+        XCTAssertFalse(PlaybackMath.canStart(routeDistance: 1_000, workoutDuration: .nan))
+        XCTAssertFalse(PlaybackMath.canStart(routeDistance: 0, workoutDuration: 300))
+        XCTAssertTrue(PlaybackMath.canStart(routeDistance: 1_000, workoutDuration: 300))
+    }
+
+    func testRoutePathEndpointUsesLastDuplicateSample() {
+        let path = RoutePath(points: [
+            GeoPoint(latitude: 0, longitude: 0),
+            GeoPoint(latitude: 0, longitude: 0.001),
+            GeoPoint(latitude: 0, longitude: 0.001)
+        ])
+
+        XCTAssertEqual(path.index(atDistance: path.totalDistance), 2)
+        XCTAssertEqual(path.point(atDistance: path.totalDistance), path.points.last)
+    }
+
+    func testCancellationGateFinishesOnlyOnceAndStopsFurtherProjection() {
+        var gate = QueryCancellationGate()
+        XCTAssertTrue(gate.cancel())
+        XCTAssertFalse(gate.finish())
+        XCTAssertFalse(gate.canProject)
     }
 
     func testLoadGenerationRejectsSupersededLoad() {
@@ -401,6 +457,58 @@ final class GhostRunnerLogicTests: XCTestCase {
         XCTAssertEqual(splits[0].secondsPerKilometre, 300, accuracy: 0.000_001)
         XCTAssertEqual(splits[1].secondsPerKilometre, 360, accuracy: 0.000_001)
         XCTAssertEqual(splits[1].elapsedSeconds, 360, accuracy: 0.000_001)
+    }
+
+    func testCompletedSplitCacheReturnsPrecomputedResultsForBothUnits() throws {
+        let cache = CompletedSplitCache(
+            cumulativeDistances: [0, 1_000, 2_000, 3_218.688],
+            timestamps: [0, 300, 600, 960]
+        )
+
+        XCTAssertEqual(try XCTUnwrap(cache.splits(for: .metric)).count, 3)
+        XCTAssertEqual(try XCTUnwrap(cache.splits(for: .imperial)).count, 2)
+    }
+
+    func testEmptyReadableRunsAreUnknownRatherThanZeroHistory() {
+        XCTAssertEqual(RunningTotalsAvailability.forReadableRunCount(0), .unavailable)
+        XCTAssertEqual(RunningTotalsAvailability.forReadableRunCount(1), .available)
+    }
+
+    func testElevationGainRejectsFlatAlternatingAltitudeNoise() {
+        let points = (0..<1_000).map { index in
+            TimedRoutePoint(
+                point: GeoPoint(latitude: 0, longitude: Double(index) * 0.000_01),
+                altitude: index.isMultiple(of: 2) ? 0 : 1,
+                verticalAccuracy: 3,
+                timestamp: Double(index)
+            )
+        }
+        XCTAssertEqual(ElevationMath.gain(points: points), 0)
+    }
+
+    func testElevationGainUsesAccurateSustainedClimbs() {
+        let points = (0...6).map { index in
+            TimedRoutePoint(
+                point: GeoPoint(latitude: 0, longitude: Double(index) * 0.000_1),
+                altitude: Double(index) * 2,
+                verticalAccuracy: 3,
+                timestamp: Double(index) * 5
+            )
+        }
+        XCTAssertEqual(try XCTUnwrap(ElevationMath.gain(points: points)), 12, accuracy: 0.1)
+    }
+
+    func testElevationGainDoesNotBridgeSeparateRouteParts() {
+        let first = [
+            TimedRoutePoint(point: GeoPoint(latitude: 0, longitude: 0), altitude: 0, verticalAccuracy: 3, timestamp: 0),
+            TimedRoutePoint(point: GeoPoint(latitude: 0, longitude: 0.001), altitude: 4, verticalAccuracy: 3, timestamp: 10)
+        ]
+        let second = [
+            TimedRoutePoint(point: GeoPoint(latitude: 0, longitude: 0.101), altitude: 100, verticalAccuracy: 3, timestamp: 20),
+            TimedRoutePoint(point: GeoPoint(latitude: 0, longitude: 0.102), altitude: 104, verticalAccuracy: 3, timestamp: 30)
+        ]
+
+        XCTAssertEqual(ElevationMath.gain(parts: [first, second]), 8)
     }
 
     func testCompletedSplitsUseMileBoundaries() throws {

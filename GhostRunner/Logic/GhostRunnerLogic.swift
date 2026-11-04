@@ -26,42 +26,66 @@ public struct TimedRoutePoint: Equatable, Sendable {
     public let point: GeoPoint
     public let altitude: Double
     public let hasReliableAltitude: Bool
+    public let verticalAccuracy: Double?
     public let timestamp: TimeInterval
 
     public init(
         point: GeoPoint,
         altitude: Double = 0,
         hasReliableAltitude: Bool = false,
+        verticalAccuracy: Double? = nil,
         timestamp: TimeInterval
     ) {
         self.point = point
         self.altitude = altitude
-        self.hasReliableAltitude = hasReliableAltitude
+        self.verticalAccuracy = verticalAccuracy
+        self.hasReliableAltitude = verticalAccuracy.map { $0.isFinite && (0...10).contains($0) }
+            ?? hasReliableAltitude
         self.timestamp = timestamp
     }
 }
 
 public struct RoutePath: Sendable {
+    public let parts: [[GeoPoint]]
     public let points: [GeoPoint]
     public let cumulativeDistances: [Double]
 
     public init(points: [GeoPoint]) {
-        self.points = points
+        self.init(parts: points.isEmpty ? [] : [points])
+    }
+
+    public init(parts: [[GeoPoint]]) {
+        self.parts = parts.filter { !$0.isEmpty }
+        self.points = self.parts.flatMap { $0 }
         guard !points.isEmpty else {
             cumulativeDistances = []
             return
         }
 
-        var distances = [0.0]
+        var distances: [Double] = []
         distances.reserveCapacity(points.count)
-        for pair in zip(points, points.dropFirst()) {
-            distances.append(distances[distances.count - 1] + RouteMath.distance(from: pair.0, to: pair.1))
+        var total = 0.0
+        for part in self.parts {
+            for (index, point) in part.enumerated() {
+                if index > 0 {
+                    let delta = RouteMath.distance(from: part[index - 1], to: point)
+                    total += delta.isFinite ? max(0, delta) : 0
+                }
+                distances.append(total)
+            }
         }
         cumulativeDistances = distances
     }
 
     public var totalDistance: Double {
         cumulativeDistances.last ?? 0
+    }
+
+    public var isPlayable: Bool {
+        points.count > 1
+            && points.allSatisfy { $0.latitude.isFinite && $0.longitude.isFinite }
+            && totalDistance.isFinite
+            && totalDistance > 0
     }
 
     public func distance(at index: Int) -> Double {
@@ -72,7 +96,8 @@ public struct RoutePath: Sendable {
     public func index(atDistance distance: Double) -> Int {
         guard !cumulativeDistances.isEmpty else { return 0 }
         let target = min(max(0, distance.isFinite ? distance : 0), totalDistance)
-        let upperIndex = cumulativeDistances.partitioningIndex { $0 >= target }
+        if target >= totalDistance { return cumulativeDistances.count - 1 }
+        let upperIndex = cumulativeDistances.partitioningIndex { $0 > target }
         guard upperIndex > 0, upperIndex < cumulativeDistances.count else {
             return min(upperIndex, cumulativeDistances.count - 1)
         }
@@ -89,8 +114,9 @@ public struct RoutePath: Sendable {
         guard target > 0 else { return first }
         guard target < totalDistance else { return points.last }
 
-        let upperIndex = cumulativeDistances.partitioningIndex { $0 >= target }
+        let upperIndex = cumulativeDistances.partitioningIndex { $0 > target }
         let lowerIndex = max(0, upperIndex - 1)
+        if cumulativeDistances[lowerIndex] == target { return points[lowerIndex] }
         let segmentLength = cumulativeDistances[upperIndex] - cumulativeDistances[lowerIndex]
         guard segmentLength > 0 else { return points[upperIndex] }
 
@@ -140,12 +166,18 @@ public enum RouteMath {
         )
     }
 
-    public static func mergedChronologically(parts: [[TimedRoutePoint]]) -> [TimedRoutePoint] {
-        parts.flatMap { $0 }.enumerated().sorted { left, right in
-            if left.element.timestamp == right.element.timestamp {
-                return left.offset < right.offset
-            }
-            return left.element.timestamp < right.element.timestamp
+    public static func orderedPartsChronologically(parts: [[TimedRoutePoint]]) -> [[TimedRoutePoint]] {
+        parts.compactMap { part -> [TimedRoutePoint]? in
+            let sorted = part.enumerated().sorted { left, right in
+                left.element.timestamp == right.element.timestamp
+                    ? left.offset < right.offset
+                    : left.element.timestamp < right.element.timestamp
+            }.map(\.element)
+            return sorted.isEmpty ? nil : sorted
+        }.enumerated().sorted { left, right in
+            let leftTime = left.element.first?.timestamp ?? .infinity
+            let rightTime = right.element.first?.timestamp ?? .infinity
+            return leftTime == rightTime ? left.offset < right.offset : leftTime < rightTime
         }.map(\.element)
     }
 
@@ -226,6 +258,11 @@ public enum RouteMath {
 }
 
 public enum PlaybackMath {
+    public static func canStart(routeDistance: Double, workoutDuration: TimeInterval) -> Bool {
+        routeDistance.isFinite && routeDistance > 0
+            && workoutDuration.isFinite && workoutDuration > 0
+    }
+
     public static func advancedDistance(
         from currentDistance: Double,
         elapsed: TimeInterval,
@@ -266,6 +303,21 @@ public enum PlaybackMath {
     public static func scrubbedIndex(for value: Double, routeCount: Int) -> Int {
         guard routeCount > 0, value.isFinite else { return 0 }
         return min(routeCount - 1, max(0, Int(value.rounded())))
+    }
+}
+
+public struct QueryCancellationGate: Sendable {
+    private var terminal = false
+
+    public init() {}
+    public var canProject: Bool { !terminal }
+    public mutating func finish() -> Bool { transitionToTerminal() }
+    public mutating func cancel() -> Bool { transitionToTerminal() }
+
+    private mutating func transitionToTerminal() -> Bool {
+        guard !terminal else { return false }
+        terminal = true
+        return true
     }
 }
 
@@ -431,6 +483,15 @@ public struct RunningTotals: Equatable, Sendable {
             longestRunMetres: distances.max() ?? 0,
             thisWeekDistanceMetres: thisWeek
         )
+    }
+}
+
+public enum RunningTotalsAvailability: Equatable, Sendable {
+    case available
+    case unavailable
+
+    public static func forReadableRunCount(_ count: Int) -> Self {
+        count > 0 ? .available : .unavailable
     }
 }
 
@@ -631,6 +692,60 @@ public enum SplitMath {
 
     private static func safeAverage(_ average: Double) -> Double {
         average.isFinite && average > 0 ? average : 0
+    }
+}
+
+public struct CompletedSplitCache: Sendable {
+    private let metric: [ObservedSplit]?
+    private let imperial: [ObservedSplit]?
+
+    public init(cumulativeDistances: [Double], timestamps: [TimeInterval]?) {
+        metric = SplitMath.completed(
+            cumulativeDistances: cumulativeDistances, timestamps: timestamps, units: .metric
+        )
+        imperial = SplitMath.completed(
+            cumulativeDistances: cumulativeDistances, timestamps: timestamps, units: .imperial
+        )
+    }
+
+    public func splits(for units: UnitPreference) -> [ObservedSplit]? {
+        units == .metric ? metric : imperial
+    }
+}
+
+public enum ElevationMath {
+    private static let maximumVerticalAccuracy = 10.0
+    private static let minimumHorizontalWindow = 10.0
+    private static let minimumClimb = 3.0
+
+    public static func gain(parts: [[TimedRoutePoint]]) -> Double? {
+        let gains = parts.compactMap { gain(points: $0) }
+        return gains.isEmpty ? nil : gains.reduce(0, +)
+    }
+
+    public static func gain(points: [TimedRoutePoint]) -> Double? {
+        let reliable = points.filter { point in
+            point.altitude.isFinite
+                && point.verticalAccuracy.map {
+                    $0.isFinite && $0 >= 0 && $0 <= maximumVerticalAccuracy
+                } ?? point.hasReliableAltitude
+        }
+        guard reliable.count > 1 else { return nil }
+
+        var anchor = reliable[0]
+        var gain = 0.0
+        for point in reliable.dropFirst() {
+            let horizontal = RouteMath.distance(from: anchor.point, to: point.point)
+            guard horizontal.isFinite, horizontal >= minimumHorizontalWindow else { continue }
+            let change = point.altitude - anchor.altitude
+            if change >= minimumClimb {
+                gain += change
+                anchor = point
+            } else if change <= -minimumClimb {
+                anchor = point
+            }
+        }
+        return gain
     }
 }
 

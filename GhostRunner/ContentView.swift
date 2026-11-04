@@ -118,14 +118,14 @@ struct ContentView: View {
                 .foregroundStyle(GhostRunnerPalette.actionBlue)
                 .accessibilityHidden(true)
             Text(title)
-                .font(.system(size: 22, weight: .bold))
+                .font(.title2.bold())
                 .multilineTextAlignment(.center)
             if let message {
                 Text(message)
-                    .font(.system(size: 15))
+                    .font(.body)
                     .foregroundStyle(GhostRunnerPalette.inkSecondary)
                     .multilineTextAlignment(.center)
-                    .lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             actions()
         }

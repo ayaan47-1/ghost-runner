@@ -47,10 +47,10 @@ struct GhostRunnerMapView: View {
             )
             ZStack {
                 Map(position: $cameraPosition) {
-                    if !viewModel.routeCoordinates.isEmpty {
-                        MapPolyline(coordinates: viewModel.routeCoordinates)
+                    ForEach(viewModel.routeCoordinateParts.indices, id: \.self) { index in
+                        MapPolyline(coordinates: viewModel.routeCoordinateParts[index])
                             .stroke(GhostRunnerPalette.routeCasing, lineWidth: 8)
-                        MapPolyline(coordinates: viewModel.routeCoordinates)
+                        MapPolyline(coordinates: viewModel.routeCoordinateParts[index])
                             .stroke(GhostRunnerPalette.route, lineWidth: 4)
                     }
                     if let coordinate = viewModel.ghostCoordinate {
@@ -123,14 +123,14 @@ struct GhostRunnerMapView: View {
         VStack(spacing: 12) {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Ghost Runner").font(.system(size: 15, weight: .semibold))
+                    Text("Ghost Runner").font(.headline)
                     if let workout = viewModel.selectedWorkout {
                         Text(workout.startDate, format: .dateTime.weekday(.wide).month().day())
-                            .font(.system(size: 13))
+                            .font(.subheadline)
                             .foregroundStyle(GhostRunnerPalette.inkSecondary)
                     } else {
                         Text("Select a run")
-                            .font(.system(size: 13))
+                            .font(.subheadline)
                             .foregroundStyle(GhostRunnerPalette.inkSecondary)
                     }
                 }
@@ -164,12 +164,12 @@ struct GhostRunnerMapView: View {
     private func summaryStat(_ title: String, _ value: String) -> some View {
         VStack(alignment: .leading, spacing: 1) {
             Text(value)
-                .font(.system(size: 22, weight: .semibold, design: .rounded))
+                .font(.system(.title3, design: .rounded, weight: .semibold))
                 .monospacedDigit()
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
             Text(title)
-                .font(.system(size: 11, weight: .semibold))
+                .font(.caption2.weight(.semibold))
                 .foregroundStyle(GhostRunnerPalette.inkSecondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -177,9 +177,9 @@ struct GhostRunnerMapView: View {
 
     private func paceSummaryStat(_ title: String, _ display: PaceDisplay) -> some View {
         VStack(alignment: .leading, spacing: 1) {
-            PaceValueView(display: display, valueFont: .system(size: 22, weight: .semibold, design: .rounded))
+            PaceValueView(display: display, valueFont: .system(.title3, design: .rounded, weight: .semibold))
             Text(title)
-                .font(.system(size: 11, weight: .semibold))
+                .font(.caption2.weight(.semibold))
                 .foregroundStyle(GhostRunnerPalette.inkSecondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)

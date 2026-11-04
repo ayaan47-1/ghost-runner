@@ -19,6 +19,7 @@ final class GhostRunnerViewModel {
     private(set) var recentRuns: [HKWorkout] = []
     var selectedWorkout: HKWorkout?
     private(set) var routeCoordinates: [CLLocationCoordinate2D] = []
+    private(set) var routeCoordinateParts: [[CLLocationCoordinate2D]] = []
     private(set) var ghostCoordinate: CLLocationCoordinate2D?
     private(set) var elevationGainMetres: Double?
     var ghostCoordinateIndex = 0
@@ -38,9 +39,12 @@ final class GhostRunnerViewModel {
 
     private let healthKitManager: HealthKitManager
     private var playbackTask: Task<Void, Never>?
+    private var routeLoadTask: Task<WorkoutRouteData, Error>?
+    private var routeLoadToken: UInt64 = 0
     private var playbackDistance = 0.0
     private var routePath = RoutePath(points: [])
     private var routeTimestamps: [TimeInterval]?
+    private var completedSplitCache = CompletedSplitCache(cumulativeDistances: [], timestamps: nil)
     private var loadGeneration = LoadGeneration()
     private var routePresentationGeneration = LoadGeneration()
 
@@ -112,11 +116,7 @@ final class GhostRunnerViewModel {
     }
 
     var observedSplits: [ObservedSplit]? {
-        SplitMath.completed(
-            cumulativeDistances: routePath.cumulativeDistances,
-            timestamps: routeTimestamps,
-            units: unitPreference
-        )
+        completedSplitCache.splits(for: unitPreference)
     }
 
     var healthAccessSummary: String {
@@ -143,7 +143,12 @@ final class GhostRunnerViewModel {
         defer { isRunningTotalsLoading = false }
         do {
             let workouts = try await healthKitManager.fetchAllRuns()
-            healthAccessState = workouts.isEmpty ? .requested : .workoutsAvailable
+            guard RunningTotalsAvailability.forReadableRunCount(workouts.count) == .available else {
+                healthAccessState = .requested
+                runningTotalsError = "No readable runs. Check Health access in Settings."
+                return
+            }
+            healthAccessState = .workoutsAvailable
             let summaries = workouts.map {
                 RunSummary(
                     startDate: $0.startDate,
@@ -187,7 +192,7 @@ final class GhostRunnerViewModel {
             while let candidateIndex = selection.currentCandidateIndex {
                 let workout = recentRuns[candidateIndex]
                 do {
-                    let route = try await healthKitManager.fetchRouteData(for: workout)
+                    let route = try await fetchRouteDataCancellingPrevious(for: workout)
                     guard loadGeneration.isCurrent(generation) else { return }
                     guard selection.recordCurrent(hasRoute: true) == candidateIndex else { continue }
                     present(route: route, for: workout)
@@ -224,8 +229,10 @@ final class GhostRunnerViewModel {
         stopPlayback()
         selectedWorkout = workout
         routeCoordinates = []
+        routeCoordinateParts = []
         routePath = RoutePath(points: [])
         routeTimestamps = nil
+        completedSplitCache = CompletedSplitCache(cumulativeDistances: [], timestamps: nil)
         ghostCoordinate = nil
         elevationGainMetres = nil
         ghostCoordinateIndex = 0
@@ -234,7 +241,7 @@ final class GhostRunnerViewModel {
         loadState = .loading
 
         do {
-            let route = try await healthKitManager.fetchRouteData(for: workout)
+            let route = try await fetchRouteDataCancellingPrevious(for: workout)
             guard loadGeneration.isCurrent(generation) else { return }
             present(route: route, for: workout)
         } catch HealthKitManagerError.noRoute {
@@ -256,12 +263,15 @@ final class GhostRunnerViewModel {
 
     func retry() async {
         _ = loadGeneration.begin()
+        routeLoadTask?.cancel()
         stopPlayback()
         recentRuns = []
         selectedWorkout = nil
         routeCoordinates = []
+        routeCoordinateParts = []
         routePath = RoutePath(points: [])
         routeTimestamps = nil
+        completedSplitCache = CompletedSplitCache(cumulativeDistances: [], timestamps: nil)
         ghostCoordinate = nil
         elevationGainMetres = nil
         ghostCoordinateIndex = 0
@@ -291,8 +301,10 @@ final class GhostRunnerViewModel {
     }
 
     private func startPlayback() {
-        guard routeCoordinates.count > 1 else { return }
-        if ghostCoordinateIndex >= routeCoordinates.count - 1 {
+        let duration = selectedWorkout?.duration ?? 0
+        guard routePath.isPlayable,
+              PlaybackMath.canStart(routeDistance: routePath.totalDistance, workoutDuration: duration) else { return }
+        if playbackDistance >= routePath.totalDistance {
             scrub(to: 0)
         }
 
@@ -309,13 +321,18 @@ final class GhostRunnerViewModel {
                 let elapsed = previous.duration(to: now).seconds
                 previous = now
 
+                let priorDistance = self.playbackDistance
                 self.playbackDistance = PlaybackMath.advancedDistance(
                     from: self.playbackDistance,
                     elapsed: elapsed,
                     speed: self.playbackSpeed,
                     routeDistance: self.routePath.totalDistance,
-                    workoutDuration: self.selectedWorkout?.duration ?? 0
+                    workoutDuration: duration
                 )
+                guard self.playbackDistance > priorDistance else {
+                    self.stopPlayback()
+                    return
+                }
                 self.ghostCoordinateIndex = self.routePath.index(atDistance: self.playbackDistance)
                 self.updateGhostCoordinate()
 
@@ -343,8 +360,13 @@ final class GhostRunnerViewModel {
     private func present(route: WorkoutRouteData, for workout: HKWorkout) {
         selectedWorkout = workout
         routeCoordinates = route.coordinates
+        routeCoordinateParts = route.coordinateParts
         routePath = route.path
         routeTimestamps = route.timestamps
+        completedSplitCache = CompletedSplitCache(
+            cumulativeDistances: route.path.cumulativeDistances,
+            timestamps: route.timestamps
+        )
         ghostCoordinate = route.coordinates.first
         elevationGainMetres = route.elevationGainMetres
         ghostCoordinateIndex = 0
@@ -353,6 +375,18 @@ final class GhostRunnerViewModel {
         playbackSpeed = defaultPlaybackSpeed
         routePresentationID = routePresentationGeneration.begin()
         loadState = .ready
+    }
+
+    private func fetchRouteDataCancellingPrevious(for workout: HKWorkout) async throws -> WorkoutRouteData {
+        routeLoadTask?.cancel()
+        routeLoadToken &+= 1
+        let token = routeLoadToken
+        let task = Task { try await healthKitManager.fetchRouteData(for: workout) }
+        routeLoadTask = task
+        defer {
+            if routeLoadToken == token { routeLoadTask = nil }
+        }
+        return try await task.value
     }
 }
 

@@ -4,6 +4,7 @@ import Foundation
 
 struct WorkoutRouteData: Sendable {
     let coordinates: [CLLocationCoordinate2D]
+    let coordinateParts: [[CLLocationCoordinate2D]]
     let elevationGainMetres: Double?
     let path: RoutePath
     let timestamps: [TimeInterval]?
@@ -11,25 +12,57 @@ struct WorkoutRouteData: Sendable {
 
 private final class RouteQueryAccumulator: @unchecked Sendable {
     private let lock = NSLock()
+    private let healthStore: HKHealthStore
     private var samples: [TimedRoutePoint] = []
-    private var isFinished = false
+    private var continuation: CheckedContinuation<[TimedRoutePoint], Error>?
+    private var query: HKWorkoutRouteQuery?
+    private var gate = QueryCancellationGate()
+
+    init(healthStore: HKHealthStore) {
+        self.healthStore = healthStore
+    }
+
+    func install(_ continuation: CheckedContinuation<[TimedRoutePoint], Error>) {
+        lock.lock()
+        guard gate.canProject else {
+            lock.unlock()
+            continuation.resume(throwing: CancellationError())
+            return
+        }
+        self.continuation = continuation
+        lock.unlock()
+    }
+
+    func start(_ query: HKWorkoutRouteQuery) {
+        lock.lock()
+        guard gate.canProject else {
+            lock.unlock()
+            return
+        }
+        self.query = query
+        healthStore.execute(query)
+        lock.unlock()
+    }
 
     func receive(
         batch: [TimedRoutePoint],
         done: Bool,
         error: Error?,
-        continuation: CheckedContinuation<[TimedRoutePoint], Error>
+        continuation _: CheckedContinuation<[TimedRoutePoint], Error>? = nil
     ) {
         lock.lock()
-        guard !isFinished else {
+        guard gate.canProject else {
             lock.unlock()
             return
         }
 
         if let error {
-            isFinished = true
+            guard gate.finish() else { lock.unlock(); return }
+            let continuation = self.continuation
+            self.continuation = nil
+            query = nil
             lock.unlock()
-            continuation.resume(throwing: error)
+            continuation?.resume(throwing: error)
             return
         }
 
@@ -39,10 +72,25 @@ private final class RouteQueryAccumulator: @unchecked Sendable {
             return
         }
 
-        isFinished = true
+        guard gate.finish() else { lock.unlock(); return }
         let result = samples
+        let continuation = self.continuation
+        self.continuation = nil
+        query = nil
         lock.unlock()
-        continuation.resume(returning: result)
+        continuation?.resume(returning: result)
+    }
+
+    func cancel() {
+        lock.lock()
+        guard gate.cancel() else { lock.unlock(); return }
+        let query = self.query
+        self.query = nil
+        let continuation = self.continuation
+        self.continuation = nil
+        lock.unlock()
+        if let query { healthStore.stop(query) }
+        continuation?.resume(throwing: CancellationError())
     }
 }
 
@@ -130,21 +178,30 @@ final class HealthKitManager {
             parts.append(try await fetchLocations(for: route))
         }
 
-        let result = await Task.detached(priority: .userInitiated) { () -> WorkoutRouteData? in
-            let samples = RouteMath.mergedChronologically(parts: parts)
-            guard !samples.isEmpty else { return nil }
-            let path = RoutePath(points: samples.map(\.point))
-            return WorkoutRouteData(
-                coordinates: path.points.map {
-                    CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude)
-                },
-                elevationGainMetres: Self.elevationGain(from: samples),
-                path: path,
-                timestamps: samples.allSatisfy({ $0.timestamp.isFinite })
-                    ? samples.map(\.timestamp)
-                    : nil
-            )
-        }.value
+        try Task.checkCancellation()
+        let result = await withTaskGroup(of: WorkoutRouteData?.self) { group in
+            group.addTask(priority: .userInitiated) {
+                guard !Task.isCancelled else { return nil }
+                let orderedParts = RouteMath.orderedPartsChronologically(parts: parts)
+                guard !Task.isCancelled else { return nil }
+                let samples = orderedParts.flatMap { $0 }
+                let path = RoutePath(parts: orderedParts.map { $0.map(\.point) })
+                guard !Task.isCancelled, path.isPlayable else { return nil }
+                let coordinateParts = path.parts.map { part in
+                    part.map { CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude) }
+                }
+                return WorkoutRouteData(
+                    coordinates: coordinateParts.flatMap { $0 },
+                    coordinateParts: coordinateParts,
+                    elevationGainMetres: ElevationMath.gain(parts: orderedParts),
+                    path: path,
+                    timestamps: samples.allSatisfy({ $0.timestamp.isFinite })
+                        ? samples.map(\.timestamp)
+                        : nil
+                )
+            }
+            return await group.next() ?? nil
+        }
         guard let result else {
             throw HealthKitManagerError.noRoute
         }
@@ -171,34 +228,26 @@ final class HealthKitManager {
     }
 
     private func fetchLocations(for route: HKWorkoutRoute) async throws -> [TimedRoutePoint] {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<[TimedRoutePoint], Error>) in
-            let accumulator = RouteQueryAccumulator()
-            let query = HKWorkoutRouteQuery(route: route) { _, locations, done, error in
-                let batch = (locations ?? []).map {
-                    TimedRoutePoint(
-                        point: GeoPoint(latitude: $0.coordinate.latitude, longitude: $0.coordinate.longitude),
-                        altitude: $0.altitude,
-                        hasReliableAltitude: $0.verticalAccuracy >= 0,
-                        timestamp: $0.timestamp.timeIntervalSinceReferenceDate
-                    )
+        let accumulator = RouteQueryAccumulator(healthStore: healthStore)
+        return try await withTaskCancellationHandler {
+            try Task.checkCancellation()
+            return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<[TimedRoutePoint], Error>) in
+                accumulator.install(continuation)
+                let query = HKWorkoutRouteQuery(route: route) { _, locations, done, error in
+                    let batch = (locations ?? []).map {
+                        TimedRoutePoint(
+                            point: GeoPoint(latitude: $0.coordinate.latitude, longitude: $0.coordinate.longitude),
+                            altitude: $0.altitude,
+                            verticalAccuracy: $0.verticalAccuracy,
+                            timestamp: $0.timestamp.timeIntervalSinceReferenceDate
+                        )
+                    }
+                    accumulator.receive(batch: batch, done: done, error: error)
                 }
-                accumulator.receive(
-                    batch: batch,
-                    done: done,
-                    error: error,
-                    continuation: continuation
-                )
+                accumulator.start(query)
             }
-            healthStore.execute(query)
-        }
-    }
-
-    nonisolated private static func elevationGain(from locations: [TimedRoutePoint]) -> Double? {
-        let reliable = locations.filter(\.hasReliableAltitude)
-        guard reliable.count > 1 else { return nil }
-
-        return zip(reliable, reliable.dropFirst()).reduce(0) { gain, pair in
-            gain + max(0, pair.1.altitude - pair.0.altitude)
+        } onCancel: {
+            accumulator.cancel()
         }
     }
 }
