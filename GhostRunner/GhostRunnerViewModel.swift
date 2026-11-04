@@ -34,6 +34,7 @@ final class GhostRunnerViewModel {
     private(set) var runningTotals = RunningTotals.empty
     private(set) var isRunningTotalsLoading = false
     private(set) var runningTotalsError: String?
+    private(set) var healthAccessState: HealthAccessState = .notRequested
     private(set) var selectedSplitIndex: Int?
     private(set) var routePresentationID: UInt64 = 0
 
@@ -110,13 +111,11 @@ final class GhostRunnerViewModel {
     }
 
     var healthAccessSummary: String {
-        switch loadState {
-        case .idle: "Not requested"
-        case .loading: "Checking Health access"
-        case .ready: "Health workouts available"
-        case .empty: "Health access requested"
-        case .failed: "Health data unavailable"
-        }
+        HealthAccessCopy.summary(for: healthAccessState)
+    }
+
+    var shouldOfferHealthSettings: Bool {
+        healthAccessState == .requested || healthAccessState == .unavailable
     }
 
     func applyPreferences(unitSetting: UnitSetting, defaultPlaybackSpeed: Double) {
@@ -135,6 +134,7 @@ final class GhostRunnerViewModel {
         defer { isRunningTotalsLoading = false }
         do {
             let workouts = try await healthKitManager.fetchAllRuns()
+            healthAccessState = workouts.isEmpty ? .requested : .workoutsAvailable
             let summaries = workouts.map {
                 RunSummary(
                     startDate: $0.startDate,
@@ -147,6 +147,7 @@ final class GhostRunnerViewModel {
                 calendar: .current
             )
         } catch {
+            healthAccessState = .unavailable
             runningTotalsError = error.localizedDescription
         }
     }
@@ -155,12 +156,15 @@ final class GhostRunnerViewModel {
         guard loadState == .idle else { return }
         let generation = loadGeneration.begin()
         loadState = .loading
+        healthAccessState = .checking
         do {
             try await healthKitManager.requestAuthorization()
             guard loadGeneration.isCurrent(generation) else { return }
+            healthAccessState = .requested
             let runs = try await healthKitManager.fetchRecentRuns()
             guard loadGeneration.isCurrent(generation) else { return }
             recentRuns = runs
+            healthAccessState = runs.isEmpty ? .requested : .workoutsAvailable
             guard let first = recentRuns.first else {
                 loadState = .empty(
                     title: "No Readable Runs",
@@ -201,6 +205,7 @@ final class GhostRunnerViewModel {
             }
         } catch {
             guard loadGeneration.isCurrent(generation) else { return }
+            healthAccessState = .unavailable
             loadState = .failed(error.localizedDescription)
         }
     }

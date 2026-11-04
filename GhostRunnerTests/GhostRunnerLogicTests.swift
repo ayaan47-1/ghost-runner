@@ -12,6 +12,12 @@ final class GhostRunnerLogicTests: XCTestCase {
         XCTAssertTrue(WelcomeGate.shouldPresent(hasSeenWelcome: true, reopenRequested: true))
     }
 
+    func testHealthAccessCopyOnlySaysUnavailableForAccessOrWorkoutFetchFailure() {
+        XCTAssertEqual(HealthAccessCopy.summary(for: .unavailable), "Health data unavailable")
+        XCTAssertEqual(HealthAccessCopy.summary(for: .requested), "Health access requested")
+        XCTAssertEqual(HealthAccessCopy.summary(for: .workoutsAvailable), "Health workouts available")
+    }
+
     func testUnitSettingResolvesAutomaticAndExplicitPreferences() {
         XCTAssertEqual(UnitSetting.automatic.resolve(systemUsesMetric: true), .metric)
         XCTAssertEqual(UnitSetting.automatic.resolve(systemUsesMetric: false), .imperial)

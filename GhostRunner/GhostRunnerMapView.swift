@@ -71,6 +71,13 @@ struct GhostRunnerMapView: View {
                         .padding(.top, geometry.safeAreaInsets.top + 8)
                 }
             }
+            .overlay(alignment: .topTrailing) {
+                if viewModel.loadState != .ready {
+                    accountButton
+                        .padding(.top, geometry.safeAreaInsets.top + 8)
+                        .padding(.trailing, 16)
+                }
+            }
             .overlay(alignment: .bottomTrailing) {
                 if viewModel.loadState == .ready && showsRecenter && !viewModel.routeCoordinates.isEmpty {
                     Button {
@@ -117,14 +124,7 @@ struct GhostRunnerMapView: View {
                     }
                 }
                 Spacer()
-                Button { viewModel.isAccountPresented = true } label: {
-                    Image(systemName: "person.crop.circle")
-                        .font(.system(size: 18, weight: .semibold))
-                        .frame(width: 44, height: 44)
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(GhostRunnerPalette.actionBlue)
-                .accessibilityLabel("Account")
+                accountButton
                 Button { viewModel.isWorkoutPickerPresented = true } label: {
                     Image(systemName: "clock.arrow.circlepath")
                         .font(.system(size: 18, weight: .semibold))
@@ -161,6 +161,18 @@ struct GhostRunnerMapView: View {
                 .foregroundStyle(GhostRunnerPalette.inkSecondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var accountButton: some View {
+        Button { viewModel.isAccountPresented = true } label: {
+            Image(systemName: "person.crop.circle")
+                .font(.system(size: 18, weight: .semibold))
+                .frame(width: 44, height: 44)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(GhostRunnerPalette.actionBlue)
+        .background(GhostRunnerPalette.surface, in: Circle())
+        .accessibilityLabel("Account")
     }
 
     private func controlDock(layoutMode: ReplayLayoutMode) -> some View {

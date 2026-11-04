@@ -7,6 +7,7 @@ struct ContentView: View {
     @AppStorage("unitSetting") private var unitSettingRaw = UnitSetting.automatic.rawValue
     @AppStorage("defaultPlaybackSpeed") private var defaultPlaybackSpeed = 1.0
     @State private var reopenWelcomeAfterAccount = false
+    @Environment(\.openURL) private var openURL
 
     var body: some View {
         ZStack {
@@ -26,11 +27,13 @@ struct ContentView: View {
                         Button("Try Again") { Task { await viewModel.retry() } }
                             .buttonStyle(.borderedProminent)
                     }
+                    if viewModel.shouldOfferHealthSettings { openSettingsButton }
                 }
             case .failed(let message):
                 stateCard(systemImage: "heart.slash", title: "Runs Unavailable", message: message) {
                     Button("Try Again") { Task { await viewModel.retry() } }
                         .buttonStyle(.borderedProminent)
+                    if viewModel.shouldOfferHealthSettings { openSettingsButton }
                 }
             case .ready:
                 EmptyView()
@@ -126,6 +129,15 @@ struct ContentView: View {
             defaultPlaybackSpeed: defaultPlaybackSpeed
         )
     }
+
+    private var openSettingsButton: some View {
+        Button("Open Settings") {
+            guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+            openURL(url)
+        }
+        .buttonStyle(.bordered)
+        .frame(minHeight: 44)
+    }
 }
 
 private struct WelcomeGuideView: View {
@@ -157,7 +169,7 @@ private struct WelcomeGuideView: View {
         Page(
             symbol: "heart.text.square",
             title: "Splits and Health",
-            message: "See observed splits from route timestamps. Health access lets us read your workouts and routes; Ghost Runner never writes or uploads them."
+            message: "See observed splits when your run has timing data. Health access lets us read your workouts and routes; Ghost Runner never writes or uploads them."
         )
     ]
 
@@ -208,11 +220,15 @@ private struct WelcomeGuideView: View {
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
                     .frame(minHeight: 44)
+                    .tint(GhostRunnerPalette.actionBlue)
+                    .foregroundStyle(GhostRunnerPalette.onAction)
             } else {
                 Button("Next") { withAnimation { page = index + 1 } }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.borderedProminent)
                     .controlSize(.large)
                     .frame(minHeight: 44)
+                    .tint(GhostRunnerPalette.actionBlue)
+                    .foregroundStyle(GhostRunnerPalette.onAction)
             }
             Spacer().frame(height: 52)
         }
@@ -226,6 +242,7 @@ private struct AccountView: View {
     let onShowWelcome: () -> Void
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @AppStorage("profileName") private var profileName = "Runner"
     @AppStorage("unitSetting") private var unitSettingRaw = UnitSetting.automatic.rawValue
     @AppStorage("defaultPlaybackSpeed") private var defaultPlaybackSpeed = 1.0
@@ -273,6 +290,7 @@ private struct AccountView: View {
                     TextField("Runner", text: $profileName)
                         .font(.headline)
                         .textInputAutocapitalization(.words)
+                        .frame(minHeight: 44)
                 }
             }
         }
@@ -285,12 +303,7 @@ private struct AccountView: View {
             } else if let error = viewModel.runningTotalsError {
                 Text(error).font(.body).foregroundStyle(GhostRunnerPalette.inkSecondary)
             } else {
-                LazyVGrid(columns: columns, spacing: 16) {
-                    total("TOTAL RUNS", "\(viewModel.runningTotals.runCount)")
-                    total("TOTAL DISTANCE", distance(viewModel.runningTotals.totalDistanceMetres))
-                    total("LONGEST RUN", distance(viewModel.runningTotals.longestRunMetres))
-                    total("THIS WEEK", distance(viewModel.runningTotals.thisWeekDistanceMetres))
-                }
+                totalsLayout
             }
         }
     }
@@ -329,7 +342,9 @@ private struct AccountView: View {
                 Label("Open Settings", systemImage: "gear")
                     .frame(maxWidth: .infinity, minHeight: 44)
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(.borderedProminent)
+            .tint(GhostRunnerPalette.actionBlue)
+            .foregroundStyle(GhostRunnerPalette.onAction)
             Button {
                 onShowWelcome()
                 dismiss()
@@ -337,7 +352,9 @@ private struct AccountView: View {
                 Label("Show welcome guide", systemImage: "book.pages")
                     .frame(maxWidth: .infinity, minHeight: 44)
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(.borderedProminent)
+            .tint(GhostRunnerPalette.actionBlue)
+            .foregroundStyle(GhostRunnerPalette.onAction)
         }
     }
 
@@ -387,10 +404,27 @@ private struct AccountView: View {
             Text(value)
                 .font(.system(.headline, design: .rounded, weight: .semibold))
                 .monospacedDigit()
-                .lineLimit(1)
+                .fixedSize(horizontal: false, vertical: true)
             Text(title).font(.caption.weight(.semibold)).foregroundStyle(GhostRunnerPalette.inkSecondary)
         }
         .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private var totalsLayout: some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            VStack(spacing: 16) { totalCells }
+        } else {
+            LazyVGrid(columns: columns, spacing: 16) { totalCells }
+        }
+    }
+
+    @ViewBuilder
+    private var totalCells: some View {
+        total("TOTAL RUNS", "\(viewModel.runningTotals.runCount)")
+        total("TOTAL DISTANCE", distance(viewModel.runningTotals.totalDistanceMetres))
+        total("LONGEST RUN", distance(viewModel.runningTotals.longestRunMetres))
+        total("THIS WEEK", distance(viewModel.runningTotals.thisWeekDistanceMetres))
     }
 
     private func distance(_ metres: Double) -> String {

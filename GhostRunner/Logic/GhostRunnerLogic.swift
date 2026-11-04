@@ -358,6 +358,26 @@ public enum WelcomeGate {
     }
 }
 
+public enum HealthAccessState: Equatable, Sendable {
+    case notRequested
+    case checking
+    case requested
+    case workoutsAvailable
+    case unavailable
+}
+
+public enum HealthAccessCopy {
+    public static func summary(for state: HealthAccessState) -> String {
+        switch state {
+        case .notRequested: "Not requested"
+        case .checking: "Checking Health access"
+        case .requested: "Health access requested"
+        case .workoutsAvailable: "Health workouts available"
+        case .unavailable: "Health data unavailable"
+        }
+    }
+}
+
 public struct RunSummary: Equatable, Sendable {
     public let startDate: Date
     public let distanceMetres: Double
