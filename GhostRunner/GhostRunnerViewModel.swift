@@ -40,7 +40,11 @@ final class GhostRunnerViewModel {
     private var playbackTask: Task<Void, Never>?
     private var routeLoadTask: Task<WorkoutRouteData, Error>?
     private var routeLoadToken: UInt64 = 0
-    private var playbackDistance = 0.0
+    private var playbackPosition = RoutePlaybackPosition()
+    private var playbackDistance: Double {
+        get { playbackPosition.distance }
+        set { playbackPosition.move(toDistance: newValue, in: routePath) }
+    }
     private var routePath = RoutePath(points: [])
     private var routeTimestamps: [TimeInterval]?
     private var completedSplitCache = CompletedSplitCache(cumulativeDistances: [], timestamps: nil)
@@ -52,7 +56,7 @@ final class GhostRunnerViewModel {
     }
 
     var scrubberValue: Double {
-        get { routePath.progress(atDistance: playbackDistance) }
+        get { playbackPosition.scrubberValue(in: routePath) }
         set { scrub(to: newValue) }
     }
 
@@ -294,7 +298,7 @@ final class GhostRunnerViewModel {
     func scrub(to value: Double) {
         let maximum = maximumScrubberValue
         let progress = min(max(0, value.isFinite ? value : 0), maximum)
-        playbackDistance = routePath.distance(atProgress: progress)
+        playbackPosition.scrub(to: progress, in: routePath)
         let nearestIndex = Int(progress.rounded())
         if abs(progress - Double(nearestIndex)) < 0.000_001,
            let point = routePath.point(atIndex: nearestIndex) {

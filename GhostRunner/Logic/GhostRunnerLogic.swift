@@ -186,6 +186,31 @@ public struct RoutePath: Sendable {
     }
 }
 
+public struct RoutePlaybackPosition: Sendable {
+    public private(set) var distance: Double
+    private var explicitProgress: Double?
+
+    public init(distance: Double = 0) {
+        self.distance = distance.isFinite ? max(0, distance) : 0
+    }
+
+    public mutating func scrub(to progress: Double, in path: RoutePath) {
+        let maximum = Double(max(0, path.points.count - 1))
+        let clamped = min(max(0, progress.isFinite ? progress : 0), maximum)
+        distance = path.distance(atProgress: clamped)
+        explicitProgress = clamped
+    }
+
+    public mutating func move(toDistance distance: Double, in path: RoutePath) {
+        self.distance = min(max(0, distance.isFinite ? distance : 0), path.totalDistance)
+        explicitProgress = nil
+    }
+
+    public func scrubberValue(in path: RoutePath) -> Double {
+        explicitProgress ?? path.progress(atDistance: distance)
+    }
+}
+
 public struct RouteTimeline: Sendable {
     public let parts: [[TimedRoutePoint]]
     public let samples: [TimedRoutePoint]

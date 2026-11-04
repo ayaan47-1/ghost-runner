@@ -217,7 +217,33 @@ final class GhostRunnerLogicTests: XCTestCase {
                 if target == path.totalDistance { break }
                 distance += step
             }
+
+            for progressStep in 0...(max(0, path.points.count - 1) * 4) {
+                let requestedProgress = Double(progressStep) / 4
+                var position = RoutePlaybackPosition()
+
+                position.scrub(to: requestedProgress, in: path)
+
+                XCTAssertEqual(
+                    position.scrubberValue(in: path),
+                    requestedProgress,
+                    accuracy: 0.000_001
+                )
+            }
         }
+    }
+
+    func testPartBoundaryScrubRoundTripsWithoutThumbSnap() {
+        let path = RoutePath(parts: [
+            [GeoPoint(latitude: 0, longitude: 0), GeoPoint(latitude: 0, longitude: 0.001)],
+            [GeoPoint(latitude: 0, longitude: 0.101), GeoPoint(latitude: 0, longitude: 0.102)]
+        ])
+        var position = RoutePlaybackPosition()
+
+        position.scrub(to: 1, in: path)
+
+        XCTAssertEqual(position.scrubberValue(in: path), 1)
+        XCTAssertEqual(position.distance, path.distance(at: 1), accuracy: 0.000_001)
     }
 
     func testRoutePathInterpolatesByPhysicalDistanceOnSparseSegments() throws {
