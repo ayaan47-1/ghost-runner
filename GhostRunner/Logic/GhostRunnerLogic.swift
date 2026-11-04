@@ -333,9 +333,80 @@ private extension Collection where Element == Double, Index == Int {
     }
 }
 
-public enum UnitPreference: Sendable {
+public enum UnitPreference: Equatable, Sendable {
     case metric
     case imperial
+}
+
+public enum UnitSetting: String, CaseIterable, Sendable {
+    case automatic
+    case metric
+    case imperial
+
+    public func resolve(systemUsesMetric: Bool) -> UnitPreference {
+        switch self {
+        case .automatic: systemUsesMetric ? .metric : .imperial
+        case .metric: .metric
+        case .imperial: .imperial
+        }
+    }
+}
+
+public enum WelcomeGate {
+    public static func shouldPresent(hasSeenWelcome: Bool, reopenRequested: Bool) -> Bool {
+        !hasSeenWelcome || reopenRequested
+    }
+}
+
+public struct RunSummary: Equatable, Sendable {
+    public let startDate: Date
+    public let distanceMetres: Double
+
+    public init(startDate: Date, distanceMetres: Double) {
+        self.startDate = startDate
+        self.distanceMetres = distanceMetres
+    }
+}
+
+public struct RunningTotals: Equatable, Sendable {
+    public let runCount: Int
+    public let totalDistanceMetres: Double
+    public let longestRunMetres: Double
+    public let thisWeekDistanceMetres: Double
+
+    public init(runCount: Int, totalDistanceMetres: Double,
+                longestRunMetres: Double, thisWeekDistanceMetres: Double) {
+        self.runCount = runCount
+        self.totalDistanceMetres = totalDistanceMetres
+        self.longestRunMetres = longestRunMetres
+        self.thisWeekDistanceMetres = thisWeekDistanceMetres
+    }
+
+    public static let empty = RunningTotals(
+        runCount: 0,
+        totalDistanceMetres: 0,
+        longestRunMetres: 0,
+        thisWeekDistanceMetres: 0
+    )
+
+    public static func aggregate(runs: [RunSummary], now: Date, calendar: Calendar) -> RunningTotals {
+        let week = calendar.dateInterval(of: .weekOfYear, for: now)
+        let distances = runs.map { run in
+            run.distanceMetres.isFinite ? max(0, run.distanceMetres) : 0
+        }
+        let thisWeek = zip(runs, distances).reduce(0.0) { result, pair in
+            guard let week,
+                  pair.0.startDate >= week.start,
+                  pair.0.startDate <= now else { return result }
+            return result + pair.1
+        }
+        return RunningTotals(
+            runCount: runs.count,
+            totalDistanceMetres: distances.reduce(0, +),
+            longestRunMetres: distances.max() ?? 0,
+            thisWeekDistanceMetres: thisWeek
+        )
+    }
 }
 
 public enum SplitPaceSource: Equatable, Sendable {

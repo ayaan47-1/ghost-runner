@@ -6,6 +6,37 @@ import XCTest
 #endif
 
 final class GhostRunnerLogicTests: XCTestCase {
+    func testWelcomeGateShowsBeforeFirstAuthorizationAndCanBeReopened() {
+        XCTAssertTrue(WelcomeGate.shouldPresent(hasSeenWelcome: false, reopenRequested: false))
+        XCTAssertFalse(WelcomeGate.shouldPresent(hasSeenWelcome: true, reopenRequested: false))
+        XCTAssertTrue(WelcomeGate.shouldPresent(hasSeenWelcome: true, reopenRequested: true))
+    }
+
+    func testUnitSettingResolvesAutomaticAndExplicitPreferences() {
+        XCTAssertEqual(UnitSetting.automatic.resolve(systemUsesMetric: true), .metric)
+        XCTAssertEqual(UnitSetting.automatic.resolve(systemUsesMetric: false), .imperial)
+        XCTAssertEqual(UnitSetting.metric.resolve(systemUsesMetric: false), .metric)
+        XCTAssertEqual(UnitSetting.imperial.resolve(systemUsesMetric: true), .imperial)
+    }
+
+    func testRunningTotalsAggregateAllRunsAndCurrentWeek() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let now = Date(timeIntervalSince1970: 1_767_225_600) // 2026-01-01 UTC
+        let runs = [
+            RunSummary(startDate: now.addingTimeInterval(-86_400), distanceMetres: 5_000),
+            RunSummary(startDate: now.addingTimeInterval(-2 * 86_400), distanceMetres: 12_000),
+            RunSummary(startDate: now.addingTimeInterval(-10 * 86_400), distanceMetres: 8_000)
+        ]
+
+        let totals = RunningTotals.aggregate(runs: runs, now: now, calendar: calendar)
+
+        XCTAssertEqual(totals.runCount, 3)
+        XCTAssertEqual(totals.totalDistanceMetres, 25_000)
+        XCTAssertEqual(totals.longestRunMetres, 12_000)
+        XCTAssertEqual(totals.thisWeekDistanceMetres, 17_000)
+    }
+
     func testReplayLayoutUsesCompactDockOnShortOrAccessibilityLayouts() {
         XCTAssertEqual(ReplayLayoutPolicy.mode(availableHeight: 844, usesAccessibilitySizes: false), .regular)
         XCTAssertEqual(ReplayLayoutPolicy.mode(availableHeight: 667, usesAccessibilitySizes: false), .compact)
