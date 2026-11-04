@@ -13,11 +13,16 @@ struct ContentView: View {
     @AppStorage("unitSetting") private var unitSettingRaw = UnitSetting.automatic.rawValue
     @AppStorage("defaultPlaybackSpeed") private var defaultPlaybackSpeed = 1.0
     @State private var selectedTab = AppTab.replay
+    @State private var tabContentFrame = CGRect.zero
+#if DEBUG
+    @AppStorage("showsLayoutDebugOverlay") private var showsLayoutDebugOverlay = false
+#endif
     @Environment(\.openURL) private var openURL
 
     var body: some View {
         TabView(selection: $selectedTab) {
             replayScreen
+                .reportTabContentFrame()
                 .tabItem { Label("Replay", systemImage: "map") }
                 .tag(AppTab.replay)
 
@@ -29,17 +34,21 @@ struct ContentView: View {
                 selectedTab = .replay
                 Task { await viewModel.selectWorkout(id: workoutID) }
             }
+            .reportTabContentFrame()
             .tabItem { Label("Runs", systemImage: "list.bullet") }
             .tag(AppTab.runs)
 
             AccountView(viewModel: viewModel) {
                 viewModel.isWelcomeGuidePresented = true
             }
+            .reportTabContentFrame()
             .tabItem { Label("Account", systemImage: "person.crop.circle") }
             .tag(AppTab.account)
         }
         .tint(GhostRunnerPalette.actionBlue)
         .background(GhostRunnerPalette.canvas)
+        .onPreferenceChange(TabContentFrameKey.self) { tabContentFrame = $0 }
+        .tabBarDebugFrame(contentFrame: tabContentFrame, enabled: layoutDebugEnabled)
         .task(id: hasSeenWelcome) {
             applyStoredPreferences()
             guard hasSeenWelcome else { return }
@@ -50,6 +59,14 @@ struct ContentView: View {
         .fullScreenCover(isPresented: welcomePresentation) {
             WelcomeGuideView(onFinish: completeWelcome)
         }
+    }
+
+    private var layoutDebugEnabled: Bool {
+#if DEBUG
+        showsLayoutDebugOverlay
+#else
+        false
+#endif
     }
 
     private var replayScreen: some View {
@@ -262,6 +279,9 @@ private struct AccountView: View {
     @AppStorage("profileName") private var profileName = "Runner"
     @AppStorage("unitSetting") private var unitSettingRaw = UnitSetting.automatic.rawValue
     @AppStorage("defaultPlaybackSpeed") private var defaultPlaybackSpeed = 1.0
+#if DEBUG
+    @AppStorage("showsLayoutDebugOverlay") private var showsLayoutDebugOverlay = false
+#endif
 
     private let columns = [GridItem(.flexible()), GridItem(.flexible())]
 
@@ -273,6 +293,9 @@ private struct AccountView: View {
                     runningCard
                     preferencesCard
                     healthCard
+#if DEBUG
+                    developerCard
+#endif
                     aboutCard
                 }
                 .padding(20)
@@ -381,6 +404,15 @@ private struct AccountView: View {
         }
     }
 
+#if DEBUG
+    private var developerCard: some View {
+        accountSection("DEVELOPER") {
+            Toggle("Show layout measurements", isOn: $showsLayoutDebugOverlay)
+                .frame(minHeight: 44)
+        }
+    }
+#endif
+
     private func accountSection<Content: View>(
         _ title: String,
         @ViewBuilder content: () -> Content
@@ -456,5 +488,54 @@ private struct AccountView: View {
             unitSetting: UnitSetting(rawValue: unitSettingRaw) ?? .automatic,
             defaultPlaybackSpeed: defaultPlaybackSpeed
         )
+    }
+}
+
+private struct TabContentFrameKey: PreferenceKey {
+    static let defaultValue = CGRect.zero
+
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
+        let next = nextValue()
+        if next != .zero { value = next }
+    }
+}
+
+private extension View {
+    func reportTabContentFrame() -> some View {
+        background {
+            GeometryReader { geometry in
+                Color.clear.preference(key: TabContentFrameKey.self, value: geometry.frame(in: .global))
+            }
+        }
+    }
+
+    @ViewBuilder
+    func tabBarDebugFrame(contentFrame: CGRect, enabled: Bool) -> some View {
+#if DEBUG
+        if enabled, contentFrame != .zero {
+            overlay {
+                GeometryReader { geometry in
+                    let rootFrame = geometry.frame(in: .global)
+                    let top = max(contentFrame.maxY, rootFrame.minY)
+                    let height = max(0, rootFrame.maxY - top)
+                    ZStack(alignment: .topLeading) {
+                        Rectangle().stroke(.pink, lineWidth: 1)
+                        Text("TAB BAR y \(top, specifier: "%.0f") · h \(height, specifier: "%.0f")")
+                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                            .foregroundStyle(.white)
+                            .padding(3)
+                            .background(.pink)
+                    }
+                    .frame(width: rootFrame.width, height: height)
+                    .position(x: rootFrame.width / 2, y: top - rootFrame.minY + height / 2)
+                    .allowsHitTesting(false)
+                }
+            }
+        } else {
+            self
+        }
+#else
+        self
+#endif
     }
 }

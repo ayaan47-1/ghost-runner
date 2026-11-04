@@ -32,6 +32,9 @@ struct GhostRunnerMapView: View {
     @Bindable var viewModel: GhostRunnerViewModel
     let onShowRuns: () -> Void
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+#if DEBUG
+    @AppStorage("showsLayoutDebugOverlay") private var showsLayoutDebugOverlay = false
+#endif
     @State private var cameraPosition: MapCameraPosition = .automatic
     @State private var fittedRegion: MKCoordinateRegion?
     @State private var showsRecenter = false
@@ -72,11 +75,11 @@ struct GhostRunnerMapView: View {
                         runSummaryPanel(layoutMode: layoutMode)
                             .frame(height: 118)
                             .padding(.horizontal, 20)
-                            .padding(.top, geometry.safeAreaInsets.top + 8)
+                            .padding(.top, CGFloat(ReplayLayoutMetrics.summaryTopGap))
                         Spacer(minLength: 8)
                         controlDock(layoutMode: layoutMode)
                             .padding(.horizontal, 16)
-                            .padding(.bottom, geometry.safeAreaInsets.bottom + 12)
+                            .padding(.bottom, CGFloat(ReplayLayoutMetrics.dockBottomGap))
                     }
 
                     if showsRecenter && !viewModel.routeCoordinates.isEmpty {
@@ -86,7 +89,11 @@ struct GhostRunnerMapView: View {
                                 Spacer()
                                 recenterButton(in: geometry.size, safeAreaTop: geometry.safeAreaInsets.top)
                                     .padding(.trailing, 16)
-                                    .padding(.bottom, (layoutMode == .compact ? 158 : 206) + geometry.safeAreaInsets.bottom)
+                                    .padding(
+                                        .bottom,
+                                        (layoutMode == .compact ? 158 : 206)
+                                            + CGFloat(ReplayLayoutMetrics.dockBottomGap)
+                                    )
                             }
                         }
                     }
@@ -151,6 +158,7 @@ struct GhostRunnerMapView: View {
         .background(GhostRunnerPalette.surface, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(GhostRunnerPalette.hairline))
         .shadow(color: .black.opacity(0.12), radius: 12, y: 5)
+        .layoutDebugFrame("SUMMARY", enabled: layoutDebugEnabled)
     }
 
     private func summaryStat(_ title: String, _ value: String) -> some View {
@@ -232,6 +240,7 @@ struct GhostRunnerMapView: View {
         .background(GhostRunnerPalette.surface, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(GhostRunnerPalette.hairline))
         .shadow(color: .black.opacity(0.15), radius: 12, y: 5)
+        .layoutDebugFrame("DOCK", enabled: layoutDebugEnabled)
     }
 
     private func dockStat(_ title: String, _ value: String) -> some View {
@@ -249,8 +258,9 @@ struct GhostRunnerMapView: View {
             Text(display.context)
                 .font(.caption2.weight(.semibold))
                 .foregroundStyle(GhostRunnerPalette.inkSecondary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.85)
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
             PaceValueView(
                 display: PaceDisplay(value: display.pace, unit: display.unit),
                 valueFont: .system(.subheadline, design: .rounded, weight: .bold)
@@ -260,6 +270,14 @@ struct GhostRunnerMapView: View {
                 .foregroundStyle(GhostRunnerPalette.inkSecondary)
         }
         .frame(maxWidth: .infinity)
+    }
+
+    private var layoutDebugEnabled: Bool {
+#if DEBUG
+        showsLayoutDebugOverlay
+#else
+        false
+#endif
     }
 
     private func fitRoute(in size: CGSize, safeAreaTop: CGFloat) {
@@ -293,49 +311,118 @@ private struct PaceValueView: View {
     let valueFont: Font
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 2) {
-            Text(display.value)
-                .font(valueFont)
-                .monospacedDigit()
-            if !display.unit.isEmpty {
-                Text(display.unit)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(GhostRunnerPalette.inkSecondary)
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .firstTextBaseline, spacing: 2) {
+                value
+                unit
             }
+
+            VStack(alignment: .leading, spacing: 0) {
+                value
+                unit
+            }
+
+            Text("\(display.value)\(display.unit)")
+                .font(.caption2.weight(.bold))
+                .monospacedDigit()
+                .lineLimit(1)
         }
-        .lineLimit(1)
-        .minimumScaleFactor(0.85)
         .accessibilityElement(children: .combine)
+    }
+
+    private var value: some View {
+        Text(display.value)
+            .font(valueFont)
+            .monospacedDigit()
+            .fixedSize()
+    }
+
+    @ViewBuilder
+    private var unit: some View {
+        if !display.unit.isEmpty {
+            Text(display.unit)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(GhostRunnerPalette.inkSecondary)
+                .fixedSize()
+        }
     }
 }
 
-#Preview("402 pt pace fit") {
-    HStack(spacing: 8) {
-        VStack(alignment: .leading, spacing: 1) {
-            PaceValueView(
-                display: PaceDisplay(value: "99:59", unit: "/mi"),
-                valueFont: .system(size: 22, weight: .semibold, design: .rounded)
-            )
-            Text("AVG PACE").font(.caption2.weight(.semibold))
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
+private struct PaceFitPreview: View {
+    let width: CGFloat
 
-        VStack(spacing: 1) {
-            Text("Mi 99 · rolling")
-                .font(.caption2.weight(.semibold))
-                .lineLimit(1)
-                .minimumScaleFactor(0.85)
-            PaceValueView(
-                display: PaceDisplay(value: "99:59", unit: "/mi"),
-                valueFont: .system(.subheadline, design: .rounded, weight: .bold)
-            )
-            Text("CURRENT SPLIT").font(.caption2.weight(.semibold))
+    var body: some View {
+        HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 1) {
+                PaceValueView(
+                    display: PaceDisplay(value: ">99:59", unit: "/mi"),
+                    valueFont: .system(size: 22, weight: .semibold, design: .rounded)
+                )
+                Text("AVG PACE").font(.caption2.weight(.semibold))
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            VStack(spacing: 1) {
+                Text("Mi 99 · rolling")
+                    .font(.caption2.weight(.semibold))
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                PaceValueView(
+                    display: PaceDisplay(value: ">99:59", unit: "/mi"),
+                    valueFont: .system(.subheadline, design: .rounded, weight: .bold)
+                )
+                Text("CURRENT SPLIT").font(.caption2.weight(.semibold))
+            }
+            .frame(maxWidth: .infinity)
         }
-        .frame(maxWidth: .infinity)
+        .padding(20)
+        .frame(width: width)
+        .background(GhostRunnerPalette.surface)
     }
-    .padding(20)
-    .frame(width: 402)
-    .background(GhostRunnerPalette.surface)
+}
+
+#Preview("375 pt accessibility pace") {
+    PaceFitPreview(width: 375)
+        .environment(\.dynamicTypeSize, .accessibility3)
+}
+
+#Preview("390 pt accessibility pace") {
+    PaceFitPreview(width: 390)
+        .environment(\.dynamicTypeSize, .accessibility3)
+}
+
+#Preview("402 pt accessibility pace") {
+    PaceFitPreview(width: 402)
+        .environment(\.dynamicTypeSize, .accessibility3)
+}
+
+private extension View {
+    @ViewBuilder
+    func layoutDebugFrame(_ label: String, enabled: Bool) -> some View {
+#if DEBUG
+        if enabled {
+            overlay {
+                GeometryReader { geometry in
+                    let frame = geometry.frame(in: .global)
+                    ZStack(alignment: .topLeading) {
+                        Rectangle().stroke(.pink, lineWidth: 1)
+                        Text("\(label) y \(frame.minY, specifier: "%.0f") · h \(frame.height, specifier: "%.0f")")
+                            .font(.caption2.monospaced().bold())
+                            .foregroundStyle(.white)
+                            .padding(3)
+                            .background(.pink)
+                    }
+                    .allowsHitTesting(false)
+                }
+            }
+        } else {
+            self
+        }
+#else
+        self
+#endif
+    }
 }
 
 private struct GhostPuck: View {

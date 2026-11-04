@@ -49,6 +49,11 @@ final class GhostRunnerLogicTests: XCTestCase {
         XCTAssertEqual(ReplayLayoutPolicy.mode(availableHeight: 844, usesAccessibilitySizes: true), .compact)
     }
 
+    func testReplayOverlayGapsMatchDeviceReviewedLayout() {
+        XCTAssertEqual(ReplayLayoutMetrics.summaryTopGap, 24)
+        XCTAssertEqual(ReplayLayoutMetrics.dockBottomGap, 12)
+    }
+
     func testRouteRegionFitsBoundsWithPadding() throws {
         let points = [
             GeoPoint(latitude: 37.0, longitude: -122.2),
@@ -491,6 +496,17 @@ final class GhostRunnerLogicTests: XCTestCase {
         XCTAssertEqual(
             RunFormatting.currentSplitDisplay(split, units: .imperial),
             CurrentSplitDisplay(context: "Mi 1 · avg", pace: "15:02", unit: "/mi")
+        )
+    }
+
+    func testPaceDisplayCapsValuesThatCannotFitReplayStats() {
+        XCTAssertEqual(
+            RunFormatting.paceDisplay(secondsPerKilometre: 6_000, units: .metric),
+            PaceDisplay(value: ">99:59", unit: "/km")
+        )
+        XCTAssertEqual(
+            RunFormatting.paceDisplay(secondsPerKilometre: 3_728, units: .imperial),
+            PaceDisplay(value: ">99:59", unit: "/mi")
         )
     }
 

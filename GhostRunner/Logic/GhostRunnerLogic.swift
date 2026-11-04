@@ -280,6 +280,11 @@ public enum ReplayLayoutPolicy {
     }
 }
 
+public enum ReplayLayoutMetrics {
+    public static let summaryTopGap = 24.0
+    public static let dockBottomGap = 12.0
+}
+
 public struct LoadGeneration: Sendable {
     private var value: UInt64 = 0
 
@@ -696,6 +701,9 @@ public enum RunFormatting {
         }
 
         let roundedSeconds = Int(seconds.rounded())
+        if roundedSeconds >= 6_000 {
+            return PaceDisplay(value: ">99:59", unit: suffix)
+        }
         return PaceDisplay(
             value: String(format: "%d:%02d", roundedSeconds / 60, roundedSeconds % 60),
             unit: suffix
