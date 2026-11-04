@@ -30,6 +30,7 @@ private extension UIColor {
 
 struct GhostRunnerMapView: View {
     @Bindable var viewModel: GhostRunnerViewModel
+    let onShowRuns: () -> Void
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var cameraPosition: MapCameraPosition = .automatic
     @State private var fittedRegion: MKCoordinateRegion?
@@ -41,71 +42,74 @@ struct GhostRunnerMapView: View {
                 availableHeight: geometry.size.height,
                 usesAccessibilitySizes: dynamicTypeSize.isAccessibilitySize
             )
-            Map(position: $cameraPosition) {
-                if !viewModel.routeCoordinates.isEmpty {
-                    MapPolyline(coordinates: viewModel.routeCoordinates)
-                        .stroke(GhostRunnerPalette.routeCasing, lineWidth: 8)
-                    MapPolyline(coordinates: viewModel.routeCoordinates)
-                        .stroke(GhostRunnerPalette.route, lineWidth: 4)
-                }
-                if let coordinate = viewModel.ghostCoordinate {
-                    Annotation("Ghost runner", coordinate: coordinate) { GhostPuck() }
-                        .annotationTitles(.hidden)
-                }
-            }
-            .mapStyle(.standard(elevation: .realistic))
-            .accessibilityLabel("Route replay map")
-            .accessibilityValue(viewModel.isPlaying ? "Ghost replay in progress" : "Ghost replay paused")
-            .onChange(of: viewModel.routePresentationID) { _, _ in
-                fitRoute(in: geometry.size, safeAreaTop: geometry.safeAreaInsets.top)
-            }
-            .onMapCameraChange(frequency: .onEnd) { context in
-                guard let fittedRegion else { return }
-                showsRecenter = !approximatelyEqual(context.region, fittedRegion)
-            }
-            .overlay(alignment: .top) {
-                if viewModel.loadState == .ready {
-                    runSummaryPanel(layoutMode: layoutMode)
-                        .frame(height: 118)
-                        .padding(.horizontal, 20)
-                        .padding(.top, geometry.safeAreaInsets.top + 8)
-                }
-            }
-            .overlay(alignment: .topTrailing) {
-                if viewModel.loadState != .ready {
-                    accountButton
-                        .padding(.top, geometry.safeAreaInsets.top + 8)
-                        .padding(.trailing, 16)
-                }
-            }
-            .overlay(alignment: .bottomTrailing) {
-                if viewModel.loadState == .ready && showsRecenter && !viewModel.routeCoordinates.isEmpty {
-                    Button {
-                        fitRoute(in: geometry.size, safeAreaTop: geometry.safeAreaInsets.top)
-                    } label: {
-                        Image(systemName: "scope")
-                            .font(.system(size: 18, weight: .semibold))
-                            .frame(width: 44, height: 44)
+            ZStack {
+                Map(position: $cameraPosition) {
+                    if !viewModel.routeCoordinates.isEmpty {
+                        MapPolyline(coordinates: viewModel.routeCoordinates)
+                            .stroke(GhostRunnerPalette.routeCasing, lineWidth: 8)
+                        MapPolyline(coordinates: viewModel.routeCoordinates)
+                            .stroke(GhostRunnerPalette.route, lineWidth: 4)
                     }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(GhostRunnerPalette.actionBlue)
-                    .background(GhostRunnerPalette.surface, in: Circle())
-                    .overlay(Circle().stroke(GhostRunnerPalette.hairline))
-                    .shadow(color: .black.opacity(0.15), radius: 8, y: 4)
-                    .padding(.trailing, 16)
-                    .padding(.bottom, (layoutMode == .compact ? 158 : 206) + geometry.safeAreaInsets.bottom)
-                    .accessibilityLabel("Recenter route")
+                    if let coordinate = viewModel.ghostCoordinate {
+                        Annotation("Ghost runner", coordinate: coordinate) { GhostPuck() }
+                            .annotationTitles(.hidden)
+                    }
                 }
-            }
-            .safeAreaInset(edge: .bottom, spacing: 0) {
+                .mapStyle(.standard(elevation: .realistic))
+                .accessibilityLabel("Route replay map")
+                .accessibilityValue(viewModel.isPlaying ? "Ghost replay in progress" : "Ghost replay paused")
+                .onChange(of: viewModel.routePresentationID) { _, _ in
+                    fitRoute(in: geometry.size, safeAreaTop: geometry.safeAreaInsets.top)
+                }
+                .onMapCameraChange(frequency: .onEnd) { context in
+                    guard let fittedRegion else { return }
+                    showsRecenter = !approximatelyEqual(context.region, fittedRegion)
+                }
+                .ignoresSafeArea()
+
                 if viewModel.loadState == .ready {
-                    controlDock(layoutMode: layoutMode)
-                        .padding(.horizontal, 16)
-                        .padding(.bottom, 12)
+                    VStack(spacing: 0) {
+                        runSummaryPanel(layoutMode: layoutMode)
+                            .frame(height: 118)
+                            .padding(.horizontal, 20)
+                            .padding(.top, geometry.safeAreaInsets.top + 8)
+                        Spacer(minLength: 8)
+                        controlDock(layoutMode: layoutMode)
+                            .padding(.horizontal, 16)
+                            .padding(.bottom, geometry.safeAreaInsets.bottom + 12)
+                    }
+
+                    if showsRecenter && !viewModel.routeCoordinates.isEmpty {
+                        VStack {
+                            Spacer()
+                            HStack {
+                                Spacer()
+                                recenterButton(in: geometry.size, safeAreaTop: geometry.safeAreaInsets.top)
+                                    .padding(.trailing, 16)
+                                    .padding(.bottom, (layoutMode == .compact ? 158 : 206) + geometry.safeAreaInsets.bottom)
+                            }
+                        }
+                    }
                 }
             }
         }
         .sheet(isPresented: $viewModel.isSplitsPresented) { SplitsSheet(viewModel: viewModel) }
+    }
+
+    private func recenterButton(in size: CGSize, safeAreaTop: CGFloat) -> some View {
+        Button {
+            fitRoute(in: size, safeAreaTop: safeAreaTop)
+        } label: {
+            Image(systemName: "scope")
+                .font(.system(size: 18, weight: .semibold))
+                .frame(width: 44, height: 44)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(GhostRunnerPalette.actionBlue)
+        .background(GhostRunnerPalette.surface, in: Circle())
+        .overlay(Circle().stroke(GhostRunnerPalette.hairline))
+        .shadow(color: .black.opacity(0.15), radius: 8, y: 4)
+        .accessibilityLabel("Recenter route")
     }
 
     private func runSummaryPanel(layoutMode: ReplayLayoutMode) -> some View {
@@ -124,8 +128,7 @@ struct GhostRunnerMapView: View {
                     }
                 }
                 Spacer()
-                accountButton
-                Button { viewModel.isWorkoutPickerPresented = true } label: {
+                Button(action: onShowRuns) {
                     Image(systemName: "clock.arrow.circlepath")
                         .font(.system(size: 18, weight: .semibold))
                         .frame(width: 44, height: 44)
@@ -138,7 +141,7 @@ struct GhostRunnerMapView: View {
                 summaryStat("DISTANCE", viewModel.formattedDistance)
                 summaryStat("DURATION", viewModel.formattedDuration)
                 if layoutMode == .regular {
-                    summaryStat("AVG PACE", viewModel.formattedPace)
+                    paceSummaryStat("AVG PACE", viewModel.paceDisplay)
                 }
             }
         }
@@ -156,6 +159,7 @@ struct GhostRunnerMapView: View {
                 .font(.system(size: 22, weight: .semibold, design: .rounded))
                 .monospacedDigit()
                 .lineLimit(1)
+                .minimumScaleFactor(0.8)
             Text(title)
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(GhostRunnerPalette.inkSecondary)
@@ -163,16 +167,14 @@ struct GhostRunnerMapView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var accountButton: some View {
-        Button { viewModel.isAccountPresented = true } label: {
-            Image(systemName: "person.crop.circle")
-                .font(.system(size: 18, weight: .semibold))
-                .frame(width: 44, height: 44)
+    private func paceSummaryStat(_ title: String, _ display: PaceDisplay) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            PaceValueView(display: display, valueFont: .system(size: 22, weight: .semibold, design: .rounded))
+            Text(title)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(GhostRunnerPalette.inkSecondary)
         }
-        .buttonStyle(.plain)
-        .foregroundStyle(GhostRunnerPalette.actionBlue)
-        .background(GhostRunnerPalette.surface, in: Circle())
-        .accessibilityLabel("Account")
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func controlDock(layoutMode: ReplayLayoutMode) -> some View {
@@ -212,7 +214,7 @@ struct GhostRunnerMapView: View {
 
             if layoutMode == .regular {
                 HStack(spacing: 8) {
-                    dockStat("CURRENT SPLIT", viewModel.formattedCurrentSplit)
+                    currentSplitStat(viewModel.currentSplitDisplay)
                     dockStat("ELEVATION GAIN", viewModel.formattedElevationGain)
                     Button("Splits") { viewModel.isSplitsPresented = true }
                         .frame(minWidth: 64, minHeight: 44)
@@ -234,9 +236,30 @@ struct GhostRunnerMapView: View {
 
     private func dockStat(_ title: String, _ value: String) -> some View {
         VStack(spacing: 2) {
-            Text(value).font(.system(.subheadline, design: .rounded, weight: .bold)).lineLimit(1)
+            Text(value)
+                .font(.system(.subheadline, design: .rounded, weight: .bold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
             Text(title).font(.caption2.weight(.semibold)).foregroundStyle(GhostRunnerPalette.inkSecondary)
         }.frame(maxWidth: .infinity)
+    }
+
+    private func currentSplitStat(_ display: CurrentSplitDisplay) -> some View {
+        VStack(spacing: 1) {
+            Text(display.context)
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(GhostRunnerPalette.inkSecondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
+            PaceValueView(
+                display: PaceDisplay(value: display.pace, unit: display.unit),
+                valueFont: .system(.subheadline, design: .rounded, weight: .bold)
+            )
+            Text("CURRENT SPLIT")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(GhostRunnerPalette.inkSecondary)
+        }
+        .frame(maxWidth: .infinity)
     }
 
     private func fitRoute(in size: CGSize, safeAreaTop: CGFloat) {
@@ -263,6 +286,56 @@ struct GhostRunnerMapView: View {
             && abs(left.span.latitudeDelta - right.span.latitudeDelta) <= latitudeTolerance
             && abs(left.span.longitudeDelta - right.span.longitudeDelta) <= longitudeTolerance
     }
+}
+
+private struct PaceValueView: View {
+    let display: PaceDisplay
+    let valueFont: Font
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 2) {
+            Text(display.value)
+                .font(valueFont)
+                .monospacedDigit()
+            if !display.unit.isEmpty {
+                Text(display.unit)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(GhostRunnerPalette.inkSecondary)
+            }
+        }
+        .lineLimit(1)
+        .minimumScaleFactor(0.85)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+#Preview("402 pt pace fit") {
+    HStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: 1) {
+            PaceValueView(
+                display: PaceDisplay(value: "99:59", unit: "/mi"),
+                valueFont: .system(size: 22, weight: .semibold, design: .rounded)
+            )
+            Text("AVG PACE").font(.caption2.weight(.semibold))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+
+        VStack(spacing: 1) {
+            Text("Mi 99 · rolling")
+                .font(.caption2.weight(.semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
+            PaceValueView(
+                display: PaceDisplay(value: "99:59", unit: "/mi"),
+                valueFont: .system(.subheadline, design: .rounded, weight: .bold)
+            )
+            Text("CURRENT SPLIT").font(.caption2.weight(.semibold))
+        }
+        .frame(maxWidth: .infinity)
+    }
+    .padding(20)
+    .frame(width: 402)
+    .background(GhostRunnerPalette.surface)
 }
 
 private struct GhostPuck: View {

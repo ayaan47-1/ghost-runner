@@ -1,17 +1,60 @@
 import SwiftUI
 import UIKit
 
+private enum AppTab: Hashable {
+    case replay
+    case runs
+    case account
+}
+
 struct ContentView: View {
     @State private var viewModel = GhostRunnerViewModel()
     @AppStorage("hasSeenWelcome") private var hasSeenWelcome = false
     @AppStorage("unitSetting") private var unitSettingRaw = UnitSetting.automatic.rawValue
     @AppStorage("defaultPlaybackSpeed") private var defaultPlaybackSpeed = 1.0
-    @State private var reopenWelcomeAfterAccount = false
+    @State private var selectedTab = AppTab.replay
     @Environment(\.openURL) private var openURL
 
     var body: some View {
+        TabView(selection: $selectedTab) {
+            replayScreen
+                .tabItem { Label("Replay", systemImage: "map") }
+                .tag(AppTab.replay)
+
+            RecentRunsView(
+                workouts: viewModel.recentRuns,
+                selectedWorkout: viewModel.selectedWorkout,
+                units: viewModel.unitPreference
+            ) { workoutID in
+                selectedTab = .replay
+                Task { await viewModel.selectWorkout(id: workoutID) }
+            }
+            .tabItem { Label("Runs", systemImage: "list.bullet") }
+            .tag(AppTab.runs)
+
+            AccountView(viewModel: viewModel) {
+                viewModel.isWelcomeGuidePresented = true
+            }
+            .tabItem { Label("Account", systemImage: "person.crop.circle") }
+            .tag(AppTab.account)
+        }
+        .tint(GhostRunnerPalette.actionBlue)
+        .background(GhostRunnerPalette.canvas)
+        .task(id: hasSeenWelcome) {
+            applyStoredPreferences()
+            guard hasSeenWelcome else { return }
+            await viewModel.load()
+        }
+        .onChange(of: unitSettingRaw) { _, _ in applyStoredPreferences() }
+        .onChange(of: defaultPlaybackSpeed) { _, _ in applyStoredPreferences() }
+        .fullScreenCover(isPresented: welcomePresentation) {
+            WelcomeGuideView(onFinish: completeWelcome)
+        }
+    }
+
+    private var replayScreen: some View {
         ZStack {
-            GhostRunnerMapView(viewModel: viewModel)
+            GhostRunnerMapView(viewModel: viewModel) { selectedTab = .runs }
 
             switch viewModel.loadState {
             case .idle, .loading:
@@ -21,7 +64,7 @@ struct ContentView: View {
             case .empty(let title, let message):
                 stateCard(systemImage: "map", title: title, message: message) {
                     if !viewModel.recentRuns.isEmpty {
-                        Button("Choose Another Run") { viewModel.isWorkoutPickerPresented = true }
+                        Button("Choose Another Run") { selectedTab = .runs }
                             .buttonStyle(.borderedProminent)
                     } else {
                         Button("Try Again") { Task { await viewModel.retry() } }
@@ -31,6 +74,10 @@ struct ContentView: View {
                 }
             case .failed(let message):
                 stateCard(systemImage: "heart.slash", title: "Runs Unavailable", message: message) {
+                    if !viewModel.recentRuns.isEmpty {
+                        Button("Choose Another Run") { selectedTab = .runs }
+                            .buttonStyle(.borderedProminent)
+                    }
                     Button("Try Again") { Task { await viewModel.retry() } }
                         .buttonStyle(.borderedProminent)
                     if viewModel.shouldOfferHealthSettings { openSettingsButton }
@@ -40,36 +87,6 @@ struct ContentView: View {
             }
         }
         .background(GhostRunnerPalette.canvas)
-        .ignoresSafeArea()
-        .task(id: hasSeenWelcome) {
-            applyStoredPreferences()
-            guard hasSeenWelcome else { return }
-            await viewModel.load()
-        }
-        .onChange(of: unitSettingRaw) { _, _ in applyStoredPreferences() }
-        .onChange(of: defaultPlaybackSpeed) { _, _ in applyStoredPreferences() }
-        .sheet(isPresented: $viewModel.isWorkoutPickerPresented) {
-            WorkoutPickerSheet(
-                workouts: viewModel.recentRuns,
-                selectedWorkout: viewModel.selectedWorkout,
-                units: viewModel.unitPreference
-            ) { workoutID in
-                Task { await viewModel.selectWorkout(id: workoutID) }
-            }
-        }
-        .sheet(isPresented: $viewModel.isAccountPresented, onDismiss: {
-            if reopenWelcomeAfterAccount {
-                reopenWelcomeAfterAccount = false
-                viewModel.isWelcomeGuidePresented = true
-            }
-        }) {
-            AccountView(viewModel: viewModel) {
-                reopenWelcomeAfterAccount = true
-            }
-        }
-        .fullScreenCover(isPresented: welcomePresentation) {
-            WelcomeGuideView(onFinish: completeWelcome)
-        }
     }
 
     private func stateCard<Actions: View>(
@@ -240,7 +257,6 @@ private struct WelcomeGuideView: View {
 private struct AccountView: View {
     @Bindable var viewModel: GhostRunnerViewModel
     let onShowWelcome: () -> Void
-    @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @AppStorage("profileName") private var profileName = "Runner"
@@ -263,11 +279,7 @@ private struct AccountView: View {
             }
             .background(GhostRunnerPalette.canvas)
             .navigationTitle("Account")
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
-            }
         }
-        .presentationDetents([.large])
         .task {
             applyPreferences()
             await viewModel.loadRunningTotals()
@@ -347,7 +359,6 @@ private struct AccountView: View {
             .foregroundStyle(GhostRunnerPalette.onAction)
             Button {
                 onShowWelcome()
-                dismiss()
             } label: {
                 Label("Show welcome guide", systemImage: "book.pages")
                     .frame(maxWidth: .infinity, minHeight: 44)

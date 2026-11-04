@@ -25,9 +25,7 @@ final class GhostRunnerViewModel {
     private(set) var isPlaying = false
     var playbackSpeed = 1.0
     var loadState: LoadState = .idle
-    var isWorkoutPickerPresented = false
     var isSplitsPresented = false
-    var isAccountPresented = false
     var isWelcomeGuidePresented = false
     var unitSetting: UnitSetting = .automatic
     private(set) var defaultPlaybackSpeed = 1.0
@@ -78,15 +76,26 @@ final class GhostRunnerViewModel {
         RunFormatting.pace(secondsPerKilometre: averageSecondsPerKilometre, units: unitPreference)
     }
 
+    var paceDisplay: PaceDisplay {
+        RunFormatting.paceDisplay(secondsPerKilometre: averageSecondsPerKilometre, units: unitPreference)
+    }
+
     var formattedCurrentSplit: String {
-        let split = SplitMath.current(
+        RunFormatting.currentSplit(currentSplit, units: unitPreference)
+    }
+
+    var currentSplitDisplay: CurrentSplitDisplay {
+        RunFormatting.currentSplitDisplay(currentSplit, units: unitPreference)
+    }
+
+    private var currentSplit: CurrentSplit {
+        SplitMath.current(
             atDistance: playbackDistance,
             cumulativeDistances: routePath.cumulativeDistances,
             timestamps: routeTimestamps,
             units: unitPreference,
             averageSecondsPerKilometre: averageSecondsPerKilometre ?? 0
         )
-        return RunFormatting.currentSplit(split, units: unitPreference)
     }
 
     private var averageSecondsPerKilometre: Double? {
@@ -344,7 +353,6 @@ final class GhostRunnerViewModel {
         playbackSpeed = defaultPlaybackSpeed
         routePresentationID = routePresentationGeneration.begin()
         loadState = .ready
-        isWorkoutPickerPresented = false
     }
 }
 

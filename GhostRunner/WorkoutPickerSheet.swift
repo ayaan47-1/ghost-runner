@@ -1,26 +1,14 @@
 @preconcurrency import HealthKit
 import SwiftUI
 
-struct WorkoutPickerSheet: View {
+struct RecentRunsView: View {
     let workouts: [HKWorkout]
     let selectedWorkout: HKWorkout?
     let units: UnitPreference
     let onSelect: (UUID) -> Void
-    @Environment(\.dismiss) private var dismiss
-
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                HStack {
-                    Text("Recent Runs")
-                        .font(.title.weight(.semibold))
-                    Spacer()
-                    Button("Close") { dismiss() }
-                        .frame(minWidth: 44, minHeight: 44)
-                }
-                .padding(.horizontal, 20)
-                .padding(.top, 12)
-
+            Group {
                 if workouts.isEmpty {
                     ContentUnavailableView(
                         "No Runs Found",
@@ -32,7 +20,6 @@ struct WorkoutPickerSheet: View {
                         let isSelected = workout.uuid == selectedWorkout?.uuid
                         Button {
                             onSelect(workout.uuid)
-                            dismiss()
                         } label: {
                             HStack {
                                 VStack(alignment: .leading, spacing: 4) {
@@ -69,7 +56,8 @@ struct WorkoutPickerSheet: View {
                     .listStyle(.plain)
                 }
             }
+            .navigationTitle("Recent Runs")
+            .background(GhostRunnerPalette.canvas)
         }
-        .presentationDetents([.medium, .large])
     }
 }

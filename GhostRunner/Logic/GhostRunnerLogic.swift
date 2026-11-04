@@ -629,6 +629,28 @@ public enum SplitMath {
     }
 }
 
+public struct PaceDisplay: Equatable, Sendable {
+    public let value: String
+    public let unit: String
+
+    public init(value: String, unit: String) {
+        self.value = value
+        self.unit = unit
+    }
+}
+
+public struct CurrentSplitDisplay: Equatable, Sendable {
+    public let context: String
+    public let pace: String
+    public let unit: String
+
+    public init(context: String, pace: String, unit: String) {
+        self.context = context
+        self.pace = pace
+        self.unit = unit
+    }
+}
+
 public enum RunFormatting {
     private static let metresPerMile = 1_609.344
     private static let feetPerMetre = 3.280_84
@@ -649,9 +671,18 @@ public enum RunFormatting {
     }
 
     public static func pace(secondsPerKilometre: Double?, units: UnitPreference) -> String {
+        let display = paceDisplay(secondsPerKilometre: secondsPerKilometre, units: units)
+        guard display.value != "—" else { return display.value }
+        return "\(display.value) \(display.unit)"
+    }
+
+    public static func paceDisplay(
+        secondsPerKilometre: Double?,
+        units: UnitPreference
+    ) -> PaceDisplay {
         guard let secondsPerKilometre,
               secondsPerKilometre.isFinite,
-              secondsPerKilometre > 0 else { return "—" }
+              secondsPerKilometre > 0 else { return PaceDisplay(value: "—", unit: "") }
 
         let seconds: Double
         let suffix: String
@@ -665,23 +696,40 @@ public enum RunFormatting {
         }
 
         let roundedSeconds = Int(seconds.rounded())
-        return String(format: "%d:%02d %@", roundedSeconds / 60, roundedSeconds % 60, suffix)
+        return PaceDisplay(
+            value: String(format: "%d:%02d", roundedSeconds / 60, roundedSeconds % 60),
+            unit: suffix
+        )
     }
 
     public static func currentSplit(_ split: CurrentSplit, units: UnitPreference) -> String {
+        let display = currentSplitDisplay(split, units: units)
+        let separator = split.source == .actual ? " · " : " "
+        return "\(display.context)\(separator)\(display.pace)\(display.unit.isEmpty ? "" : " \(display.unit)")"
+    }
+
+    public static func currentSplitDisplay(
+        _ split: CurrentSplit,
+        units: UnitPreference
+    ) -> CurrentSplitDisplay {
         let splitName = units == .metric ? "Km" : "Mi"
         let qualifier: String
         switch split.source {
         case .actual:
             qualifier = ""
         case .previous:
-            qualifier = "prev "
+            qualifier = "prev"
         case .rolling:
-            qualifier = "rolling "
+            qualifier = "rolling"
         case .average:
-            qualifier = "avg "
+            qualifier = "avg"
         }
-        return "\(splitName) \(split.index) · \(qualifier)\(pace(secondsPerKilometre: split.secondsPerKilometre, units: units))"
+        let pace = paceDisplay(secondsPerKilometre: split.secondsPerKilometre, units: units)
+        return CurrentSplitDisplay(
+            context: "\(splitName) \(split.index)\(qualifier.isEmpty ? "" : " · \(qualifier)")",
+            pace: pace.value,
+            unit: pace.unit
+        )
     }
 
     public static func duration(seconds: TimeInterval) -> String {

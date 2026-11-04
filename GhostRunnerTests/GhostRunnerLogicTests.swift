@@ -481,6 +481,19 @@ final class GhostRunnerLogicTests: XCTestCase {
         XCTAssertEqual(RunFormatting.pace(secondsPerKilometre: 300, units: .imperial), "8:03 /mi")
     }
 
+    func testPaceDisplaySeparatesValueFromUnitFor402PointReplayStats() {
+        XCTAssertEqual(
+            RunFormatting.paceDisplay(secondsPerKilometre: 560.5, units: .imperial),
+            PaceDisplay(value: "15:02", unit: "/mi")
+        )
+
+        let split = CurrentSplit(index: 1, secondsPerKilometre: 560.5, source: .average)
+        XCTAssertEqual(
+            RunFormatting.currentSplitDisplay(split, units: .imperial),
+            CurrentSplitDisplay(context: "Mi 1 · avg", pace: "15:02", unit: "/mi")
+        )
+    }
+
     func testPaceFormattingHandlesMissingValues() {
         XCTAssertEqual(RunFormatting.pace(secondsPerKilometre: nil, units: .metric), "—")
         XCTAssertEqual(RunFormatting.pace(secondsPerKilometre: 0, units: .metric), "—")
