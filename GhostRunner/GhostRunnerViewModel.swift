@@ -22,7 +22,6 @@ final class GhostRunnerViewModel {
     private(set) var routeCoordinateParts: [[CLLocationCoordinate2D]] = []
     private(set) var ghostCoordinate: CLLocationCoordinate2D?
     private(set) var elevationGainMetres: Double?
-    var ghostCoordinateIndex = 0
     private(set) var isPlaying = false
     var playbackSpeed = 1.0
     var loadState: LoadState = .idle
@@ -53,7 +52,7 @@ final class GhostRunnerViewModel {
     }
 
     var scrubberValue: Double {
-        get { Double(ghostCoordinateIndex) }
+        get { routePath.progress(atDistance: playbackDistance) }
         set { scrub(to: newValue) }
     }
 
@@ -237,7 +236,6 @@ final class GhostRunnerViewModel {
         completedSplitCache = CompletedSplitCache(cumulativeDistances: [], timestamps: nil)
         ghostCoordinate = nil
         elevationGainMetres = nil
-        ghostCoordinateIndex = 0
         playbackDistance = 0
         selectedSplitIndex = nil
         loadState = .loading
@@ -276,7 +274,6 @@ final class GhostRunnerViewModel {
         completedSplitCache = CompletedSplitCache(cumulativeDistances: [], timestamps: nil)
         ghostCoordinate = nil
         elevationGainMetres = nil
-        ghostCoordinateIndex = 0
         playbackDistance = 0
         selectedSplitIndex = nil
         loadState = .idle
@@ -291,19 +288,20 @@ final class GhostRunnerViewModel {
         stopPlayback()
         selectedSplitIndex = split.index
         playbackDistance = min(max(0, split.startDistance), routePath.totalDistance)
-        ghostCoordinateIndex = routePath.index(atDistance: playbackDistance)
         updateGhostCoordinate()
     }
 
     func scrub(to value: Double) {
-        let index = PlaybackMath.scrubbedIndex(for: value, routeCount: routeCoordinates.count)
-        ghostCoordinateIndex = index
-        playbackDistance = routePath.distance(at: index)
-        if let point = routePath.point(atIndex: index) {
+        let maximum = maximumScrubberValue
+        let progress = min(max(0, value.isFinite ? value : 0), maximum)
+        playbackDistance = routePath.distance(atProgress: progress)
+        let nearestIndex = Int(progress.rounded())
+        if abs(progress - Double(nearestIndex)) < 0.000_001,
+           let point = routePath.point(atIndex: nearestIndex) {
             ghostCoordinate = CLLocationCoordinate2D(latitude: point.latitude, longitude: point.longitude)
-        } else {
-            ghostCoordinate = nil
+            return
         }
+        updateGhostCoordinate()
     }
 
     private func startPlayback() {
@@ -339,7 +337,6 @@ final class GhostRunnerViewModel {
                     self.stopPlayback()
                     return
                 }
-                self.ghostCoordinateIndex = self.routePath.index(atDistance: self.playbackDistance)
                 self.updateGhostCoordinate()
 
                 if self.playbackDistance >= self.routePath.totalDistance {
@@ -377,7 +374,6 @@ final class GhostRunnerViewModel {
         )
         ghostCoordinate = route.coordinates.first
         elevationGainMetres = route.elevationGainMetres
-        ghostCoordinateIndex = 0
         playbackDistance = 0
         selectedSplitIndex = nil
         playbackSpeed = defaultPlaybackSpeed

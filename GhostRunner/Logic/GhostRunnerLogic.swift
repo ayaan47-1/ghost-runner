@@ -125,21 +125,38 @@ public struct RoutePath: Sendable {
     }
 
     public func index(atDistance distance: Double) -> Int {
+        Int(progress(atDistance: distance).rounded())
+    }
+
+    public func progress(atDistance distance: Double) -> Double {
         guard !cumulativeDistances.isEmpty else { return 0 }
         let target = min(max(0, distance.isFinite ? distance : 0), totalDistance)
         guard target > 0 else { return 0 }
-        if target >= totalDistance { return cumulativeDistances.count - 1 }
+        if target >= totalDistance { return Double(cumulativeDistances.count - 1) }
+
         let upperIndex = cumulativeDistances.partitioningIndex { $0 > target }
-        let exactIndex = upperIndex - 1
-        if exactIndex >= 0, cumulativeDistances[exactIndex] == target { return exactIndex }
-        guard upperIndex < cumulativeDistances.count else {
-            return cumulativeDistances.count - 1
+        let lowerIndex = upperIndex - 1
+        if lowerIndex >= 0, cumulativeDistances[lowerIndex] == target {
+            return Double(lowerIndex)
         }
-        let startIndex = segmentStartIndices[upperIndex]
-        let segmentLength = RouteMath.distance(from: points[startIndex], to: points[upperIndex])
-        let segmentStartDistance = cumulativeDistances[upperIndex] - segmentLength
-        return target - segmentStartDistance
-            <= cumulativeDistances[upperIndex] - target ? startIndex : upperIndex
+
+        let lowerDistance = cumulativeDistances[lowerIndex]
+        let upperDistance = cumulativeDistances[upperIndex]
+        let fraction = (target - lowerDistance) / (upperDistance - lowerDistance)
+        return Double(lowerIndex) + fraction
+    }
+
+    public func distance(atProgress progress: Double) -> Double {
+        guard !cumulativeDistances.isEmpty else { return 0 }
+        let maximum = Double(cumulativeDistances.count - 1)
+        let clamped = min(max(0, progress.isFinite ? progress : 0), maximum)
+        let lowerIndex = Int(clamped.rounded(.down))
+        let upperIndex = Int(clamped.rounded(.up))
+        guard lowerIndex != upperIndex else { return cumulativeDistances[lowerIndex] }
+
+        let fraction = clamped - Double(lowerIndex)
+        let lowerDistance = cumulativeDistances[lowerIndex]
+        return lowerDistance + (cumulativeDistances[upperIndex] - lowerDistance) * fraction
     }
 
     public func point(atDistance distance: Double) -> GeoPoint? {

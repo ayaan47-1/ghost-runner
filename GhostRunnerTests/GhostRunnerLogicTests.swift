@@ -156,6 +156,70 @@ final class GhostRunnerLogicTests: XCTestCase {
         ))
     }
 
+    func testOverlappingRoutePartsNeverMovePlaybackIndexBackward() {
+        let path = RouteTimeline(parts: [
+            [
+                TimedRoutePoint(point: GeoPoint(latitude: 0, longitude: 0), timestamp: 0),
+                TimedRoutePoint(point: GeoPoint(latitude: 0, longitude: 0.01), timestamp: 300)
+            ],
+            [
+                TimedRoutePoint(point: GeoPoint(latitude: 1, longitude: 0), timestamp: 150),
+                TimedRoutePoint(point: GeoPoint(latitude: 1, longitude: 0.01), timestamp: 450)
+            ]
+        ]).path
+
+        XCTAssertEqual(path.index(atDistance: 900), 2)
+        XCTAssertEqual(path.index(atDistance: 1_200), 2)
+    }
+
+    func testPlaybackProgressIsMonotonicAcrossNormalGapAndOverlappingRoutes() {
+        let normal = RoutePath(points: [
+            GeoPoint(latitude: 0, longitude: 0),
+            GeoPoint(latitude: 0, longitude: 0.002),
+            GeoPoint(latitude: 0, longitude: 0.01)
+        ])
+        let gap = RoutePath(parts: [
+            [GeoPoint(latitude: 0, longitude: 0), GeoPoint(latitude: 0, longitude: 0.002)],
+            [GeoPoint(latitude: 1, longitude: 0), GeoPoint(latitude: 1, longitude: 0.008)]
+        ])
+        let overlap = RouteTimeline(parts: [
+            [
+                TimedRoutePoint(point: GeoPoint(latitude: 0, longitude: 0), timestamp: 0),
+                TimedRoutePoint(point: GeoPoint(latitude: 0, longitude: 0.01), timestamp: 300)
+            ],
+            [
+                TimedRoutePoint(point: GeoPoint(latitude: 1, longitude: 0), timestamp: 150),
+                TimedRoutePoint(point: GeoPoint(latitude: 1, longitude: 0.01), timestamp: 450)
+            ]
+        ]).path
+
+        for path in [normal, gap, overlap] {
+            let step = 10.0
+            var priorIndex = 0
+            var priorProgress = 0.0
+            var priorGhostDistance = 0.0
+            var distance = 0.0
+
+            while true {
+                let target = min(distance, path.totalDistance)
+                let progress = path.progress(atDistance: target)
+                let ghostDistance = path.distance(atProgress: progress)
+                let index = path.index(atDistance: target)
+
+                XCTAssertGreaterThanOrEqual(index, priorIndex)
+                XCTAssertGreaterThanOrEqual(progress, priorProgress)
+                XCTAssertGreaterThanOrEqual(ghostDistance, priorGhostDistance)
+                XCTAssertLessThanOrEqual(ghostDistance - priorGhostDistance, step + 0.000_001)
+
+                priorIndex = index
+                priorProgress = progress
+                priorGhostDistance = ghostDistance
+                if target == path.totalDistance { break }
+                distance += step
+            }
+        }
+    }
+
     func testRoutePathInterpolatesByPhysicalDistanceOnSparseSegments() throws {
         let path = RoutePath(points: [
             GeoPoint(latitude: 0, longitude: 0),
