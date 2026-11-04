@@ -49,6 +49,8 @@ public struct RoutePath: Sendable {
     public let parts: [[GeoPoint]]
     public let points: [GeoPoint]
     public let cumulativeDistances: [Double]
+    public let segmentStartIndices: [Int]
+    public let segmentStartDistances: [Double]
 
     public init(points: [GeoPoint]) {
         self.init(parts: points.isEmpty ? [] : [points])
@@ -59,22 +61,46 @@ public struct RoutePath: Sendable {
         self.points = self.parts.flatMap { $0 }
         guard !points.isEmpty else {
             cumulativeDistances = []
+            segmentStartIndices = []
+            segmentStartDistances = []
             return
         }
 
         var distances: [Double] = []
+        var starts: [Int] = []
+        var startDistances: [Double] = []
         distances.reserveCapacity(points.count)
+        starts.reserveCapacity(points.count)
         var total = 0.0
         for part in self.parts {
             for (index, point) in part.enumerated() {
+                let globalIndex = distances.count
                 if index > 0 {
                     let delta = RouteMath.distance(from: part[index - 1], to: point)
                     total += delta.isFinite ? max(0, delta) : 0
                 }
                 distances.append(total)
+                starts.append(index > 0 ? globalIndex - 1 : globalIndex)
+                startDistances.append(index > 0 ? distances[globalIndex - 1] : total)
             }
         }
         cumulativeDistances = distances
+        segmentStartIndices = starts
+        segmentStartDistances = startDistances
+    }
+
+    init(
+        parts: [[GeoPoint]],
+        timelinePoints: [GeoPoint],
+        cumulativeDistances: [Double],
+        segmentStartIndices: [Int],
+        segmentStartDistances: [Double]
+    ) {
+        self.parts = parts
+        points = timelinePoints
+        self.cumulativeDistances = cumulativeDistances
+        self.segmentStartIndices = segmentStartIndices
+        self.segmentStartDistances = segmentStartDistances
     }
 
     public var totalDistance: Double {
@@ -93,17 +119,27 @@ public struct RoutePath: Sendable {
         return cumulativeDistances[min(max(0, index), cumulativeDistances.count - 1)]
     }
 
+    public func point(atIndex index: Int) -> GeoPoint? {
+        guard !points.isEmpty else { return nil }
+        return points[min(max(0, index), points.count - 1)]
+    }
+
     public func index(atDistance distance: Double) -> Int {
         guard !cumulativeDistances.isEmpty else { return 0 }
         let target = min(max(0, distance.isFinite ? distance : 0), totalDistance)
+        guard target > 0 else { return 0 }
         if target >= totalDistance { return cumulativeDistances.count - 1 }
         let upperIndex = cumulativeDistances.partitioningIndex { $0 > target }
-        guard upperIndex > 0, upperIndex < cumulativeDistances.count else {
-            return min(upperIndex, cumulativeDistances.count - 1)
+        let exactIndex = upperIndex - 1
+        if exactIndex >= 0, cumulativeDistances[exactIndex] == target { return exactIndex }
+        guard upperIndex < cumulativeDistances.count else {
+            return cumulativeDistances.count - 1
         }
-        let lowerIndex = upperIndex - 1
-        return target - cumulativeDistances[lowerIndex]
-            <= cumulativeDistances[upperIndex] - target ? lowerIndex : upperIndex
+        let startIndex = segmentStartIndices[upperIndex]
+        let segmentLength = RouteMath.distance(from: points[startIndex], to: points[upperIndex])
+        let segmentStartDistance = cumulativeDistances[upperIndex] - segmentLength
+        return target - segmentStartDistance
+            <= cumulativeDistances[upperIndex] - target ? startIndex : upperIndex
     }
 
     public func point(atDistance distance: Double) -> GeoPoint? {
@@ -115,18 +151,71 @@ public struct RoutePath: Sendable {
         guard target < totalDistance else { return points.last }
 
         let upperIndex = cumulativeDistances.partitioningIndex { $0 > target }
-        let lowerIndex = max(0, upperIndex - 1)
-        if cumulativeDistances[lowerIndex] == target { return points[lowerIndex] }
-        let segmentLength = cumulativeDistances[upperIndex] - cumulativeDistances[lowerIndex]
+        let exactIndex = upperIndex - 1
+        if exactIndex >= 0, cumulativeDistances[exactIndex] == target { return points[exactIndex] }
+        let lowerIndex = segmentStartIndices[upperIndex]
+        let segmentLength = RouteMath.distance(from: points[lowerIndex], to: points[upperIndex])
         guard segmentLength > 0 else { return points[upperIndex] }
 
-        let progress = (target - cumulativeDistances[lowerIndex]) / segmentLength
+        let segmentStartDistance = cumulativeDistances[upperIndex] - segmentLength
+        let progress = (target - segmentStartDistance) / segmentLength
         let start = points[lowerIndex]
         let end = points[upperIndex]
         let longitudeDelta = RouteMath.shortestLongitudeDelta(from: start.longitude, to: end.longitude)
         return GeoPoint(
             latitude: start.latitude + (end.latitude - start.latitude) * progress,
             longitude: RouteMath.normalizedLongitude(start.longitude + longitudeDelta * progress)
+        )
+    }
+}
+
+public struct RouteTimeline: Sendable {
+    public let parts: [[TimedRoutePoint]]
+    public let samples: [TimedRoutePoint]
+    public let timestamps: [TimeInterval]
+    public let path: RoutePath
+
+    public init(parts sourceParts: [[TimedRoutePoint]]) {
+        parts = RouteMath.orderedPartsChronologically(parts: sourceParts)
+        let entries = parts.enumerated().flatMap { partIndex, part in
+            part.enumerated().map { sampleIndex, sample in
+                (partIndex: partIndex, sampleIndex: sampleIndex, sample: sample)
+            }
+        }.sorted { left, right in
+            if left.sample.timestamp != right.sample.timestamp {
+                return left.sample.timestamp < right.sample.timestamp
+            }
+            if left.partIndex != right.partIndex { return left.partIndex < right.partIndex }
+            return left.sampleIndex < right.sampleIndex
+        }
+
+        samples = entries.map(\.sample)
+        timestamps = samples.map(\.timestamp)
+        let points = samples.map(\.point)
+        var cumulative: [Double] = []
+        var segmentStarts: [Int] = []
+        var segmentStartDistances: [Double] = []
+        var lastIndexByPart: [Int: Int] = [:]
+        var total = 0.0
+        for (index, entry) in entries.enumerated() {
+            if let previousIndex = lastIndexByPart[entry.partIndex] {
+                segmentStartDistances.append(total)
+                let delta = RouteMath.distance(from: points[previousIndex], to: entry.sample.point)
+                total += delta.isFinite ? max(0, delta) : 0
+                segmentStarts.append(previousIndex)
+            } else {
+                segmentStarts.append(index)
+                segmentStartDistances.append(total)
+            }
+            cumulative.append(total)
+            lastIndexByPart[entry.partIndex] = index
+        }
+        path = RoutePath(
+            parts: parts.map { $0.map(\.point) },
+            timelinePoints: points,
+            cumulativeDistances: cumulative,
+            segmentStartIndices: segmentStarts,
+            segmentStartDistances: segmentStartDistances
         )
     }
 }
@@ -543,6 +632,8 @@ public enum SplitMath {
         atDistance distance: Double,
         cumulativeDistances: [Double],
         timestamps: [TimeInterval]?,
+        segmentStartIndices: [Int]? = nil,
+        segmentStartDistances: [Double]? = nil,
         units: UnitPreference,
         averageSecondsPerKilometre: Double
     ) -> CurrentSplit {
@@ -574,7 +665,9 @@ public enum SplitMath {
                from: splitStart,
                to: currentDistance,
                cumulativeDistances: cumulativeDistances,
-               timestamps: timestamps
+               timestamps: timestamps,
+               segmentStartIndices: segmentStartIndices,
+               segmentStartDistances: segmentStartDistances
            ) {
             return CurrentSplit(index: splitIndex, secondsPerKilometre: pace, source: .actual)
         }
@@ -584,7 +677,9 @@ public enum SplitMath {
                from: splitStart - unitDistance,
                to: splitStart,
                cumulativeDistances: cumulativeDistances,
-               timestamps: timestamps
+               timestamps: timestamps,
+               segmentStartIndices: segmentStartIndices,
+               segmentStartDistances: segmentStartDistances
            ) {
             return CurrentSplit(index: splitIndex, secondsPerKilometre: pace, source: .previous)
         }
@@ -595,7 +690,9 @@ public enum SplitMath {
                from: rollingStart,
                to: currentDistance,
                cumulativeDistances: cumulativeDistances,
-               timestamps: timestamps
+               timestamps: timestamps,
+               segmentStartIndices: segmentStartIndices,
+               segmentStartDistances: segmentStartDistances
            ) {
             return CurrentSplit(index: splitIndex, secondsPerKilometre: pace, source: .rolling)
         }
@@ -606,6 +703,8 @@ public enum SplitMath {
     public static func completed(
         cumulativeDistances: [Double],
         timestamps: [TimeInterval]?,
+        segmentStartIndices: [Int]? = nil,
+        segmentStartDistances: [Double]? = nil,
         units: UnitPreference
     ) -> [ObservedSplit]? {
         guard let timestamps,
@@ -626,7 +725,9 @@ public enum SplitMath {
             guard let metrics = movingMetrics(
                 from: start, to: end,
                 cumulativeDistances: cumulativeDistances,
-                timestamps: timestamps
+                timestamps: timestamps,
+                segmentStartIndices: segmentStartIndices,
+                segmentStartDistances: segmentStartDistances
             ), metrics.distance >= unitDistance * 0.9 else { return nil }
             let pace = metrics.time / metrics.distance * 1_000
             guard plausibleSecondsPerKilometre.contains(pace) else { return nil }
@@ -644,7 +745,9 @@ public enum SplitMath {
         from startDistance: Double,
         to endDistance: Double,
         cumulativeDistances: [Double],
-        timestamps: [TimeInterval]
+        timestamps: [TimeInterval],
+        segmentStartIndices: [Int]?,
+        segmentStartDistances: [Double]?
     ) -> Double? {
         guard endDistance > startDistance else { return nil }
 
@@ -652,7 +755,9 @@ public enum SplitMath {
             from: startDistance,
             to: endDistance,
             cumulativeDistances: cumulativeDistances,
-            timestamps: timestamps
+            timestamps: timestamps,
+            segmentStartIndices: segmentStartIndices,
+            segmentStartDistances: segmentStartDistances
         ) else { return nil }
         let secondsPerKilometre = metrics.time / metrics.distance * 1_000
         guard plausibleSecondsPerKilometre.contains(secondsPerKilometre) else { return nil }
@@ -663,16 +768,22 @@ public enum SplitMath {
         from startDistance: Double,
         to endDistance: Double,
         cumulativeDistances: [Double],
-        timestamps: [TimeInterval]
+        timestamps: [TimeInterval],
+        segmentStartIndices: [Int]?,
+        segmentStartDistances: [Double]?
     ) -> (distance: Double, time: Double)? {
         guard endDistance > startDistance else { return nil }
         var movingDistance = 0.0
         var movingTime = 0.0
         for index in 1..<cumulativeDistances.count {
-            let segmentStart = cumulativeDistances[index - 1]
+            let startIndex = segmentStartIndices.flatMap { index < $0.count ? $0[index] : nil }
+                ?? index - 1
+            guard startIndex >= 0, startIndex < index else { continue }
+            let segmentStart = segmentStartDistances.flatMap { index < $0.count ? $0[index] : nil }
+                ?? cumulativeDistances[index - 1]
             let segmentEnd = cumulativeDistances[index]
             let segmentDistance = segmentEnd - segmentStart
-            let segmentTime = timestamps[index] - timestamps[index - 1]
+            let segmentTime = timestamps[index] - timestamps[startIndex]
             guard segmentDistance > 0,
                   segmentTime > 0,
                   segmentDistance / segmentTime >= minimumMovingSpeed else { continue }
@@ -699,12 +810,25 @@ public struct CompletedSplitCache: Sendable {
     private let metric: [ObservedSplit]?
     private let imperial: [ObservedSplit]?
 
-    public init(cumulativeDistances: [Double], timestamps: [TimeInterval]?) {
+    public init(
+        cumulativeDistances: [Double],
+        timestamps: [TimeInterval]?,
+        segmentStartIndices: [Int]? = nil,
+        segmentStartDistances: [Double]? = nil
+    ) {
         metric = SplitMath.completed(
-            cumulativeDistances: cumulativeDistances, timestamps: timestamps, units: .metric
+            cumulativeDistances: cumulativeDistances,
+            timestamps: timestamps,
+            segmentStartIndices: segmentStartIndices,
+            segmentStartDistances: segmentStartDistances,
+            units: .metric
         )
         imperial = SplitMath.completed(
-            cumulativeDistances: cumulativeDistances, timestamps: timestamps, units: .imperial
+            cumulativeDistances: cumulativeDistances,
+            timestamps: timestamps,
+            segmentStartIndices: segmentStartIndices,
+            segmentStartDistances: segmentStartDistances,
+            units: .imperial
         )
     }
 
@@ -732,19 +856,37 @@ public enum ElevationMath {
         }
         guard reliable.count > 1 else { return nil }
 
-        var anchor = reliable[0]
-        var gain = 0.0
+        var filtered = [reliable[0]]
         for point in reliable.dropFirst() {
-            let horizontal = RouteMath.distance(from: anchor.point, to: point.point)
-            guard horizontal.isFinite, horizontal >= minimumHorizontalWindow else { continue }
-            let change = point.altitude - anchor.altitude
-            if change >= minimumClimb {
-                gain += change
-                anchor = point
-            } else if change <= -minimumClimb {
-                anchor = point
+            if RouteMath.distance(from: filtered[filtered.count - 1].point, to: point.point)
+                >= minimumHorizontalWindow {
+                filtered.append(point)
             }
         }
+        guard filtered.count > 1 else { return 0 }
+
+        let uncertainty = filtered.compactMap(\.verticalAccuracy).max() ?? 0
+        let hysteresis = max(minimumClimb, uncertainty * 2)
+        var valley = filtered[0].altitude
+        var peak = valley
+        var isClimbing = false
+        var gain = 0.0
+        for point in filtered.dropFirst() {
+            let altitude = point.altitude
+            if altitude < peak - hysteresis {
+                if isClimbing { gain += peak - valley }
+                valley = altitude
+                peak = altitude
+                isClimbing = false
+            } else {
+                peak = max(peak, altitude)
+                if !isClimbing {
+                    valley = min(valley, altitude)
+                    isClimbing = peak - valley > hysteresis
+                }
+            }
+        }
+        if isClimbing { gain += peak - valley }
         return gain
     }
 }

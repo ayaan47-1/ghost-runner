@@ -97,6 +97,8 @@ final class GhostRunnerViewModel {
             atDistance: playbackDistance,
             cumulativeDistances: routePath.cumulativeDistances,
             timestamps: routeTimestamps,
+            segmentStartIndices: routePath.segmentStartIndices,
+            segmentStartDistances: routePath.segmentStartDistances,
             units: unitPreference,
             averageSecondsPerKilometre: averageSecondsPerKilometre ?? 0
         )
@@ -297,7 +299,11 @@ final class GhostRunnerViewModel {
         let index = PlaybackMath.scrubbedIndex(for: value, routeCount: routeCoordinates.count)
         ghostCoordinateIndex = index
         playbackDistance = routePath.distance(at: index)
-        updateGhostCoordinate()
+        if let point = routePath.point(atIndex: index) {
+            ghostCoordinate = CLLocationCoordinate2D(latitude: point.latitude, longitude: point.longitude)
+        } else {
+            ghostCoordinate = nil
+        }
     }
 
     private func startPlayback() {
@@ -365,7 +371,9 @@ final class GhostRunnerViewModel {
         routeTimestamps = route.timestamps
         completedSplitCache = CompletedSplitCache(
             cumulativeDistances: route.path.cumulativeDistances,
-            timestamps: route.timestamps
+            timestamps: route.timestamps,
+            segmentStartIndices: route.path.segmentStartIndices,
+            segmentStartDistances: route.path.segmentStartDistances
         )
         ghostCoordinate = route.coordinates.first
         elevationGainMetres = route.elevationGainMetres

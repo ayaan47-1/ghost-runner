@@ -194,21 +194,22 @@ final class HealthKitManager {
 
     nonisolated private static func projectRoute(parts: [[TimedRoutePoint]]) -> WorkoutRouteData? {
         guard !Task.isCancelled else { return nil }
-        let orderedParts = RouteMath.orderedPartsChronologically(parts: parts)
+        let timeline = RouteTimeline(parts: parts)
         guard !Task.isCancelled else { return nil }
-        let samples = orderedParts.flatMap { $0 }
-        let path = RoutePath(parts: orderedParts.map { $0.map(\.point) })
+        let path = timeline.path
         guard !Task.isCancelled, path.isPlayable else { return nil }
-        let coordinateParts = path.parts.map { part in
-            part.map { CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude) }
+        let coordinateParts = timeline.parts.map { part in
+            part.map {
+                CLLocationCoordinate2D(latitude: $0.point.latitude, longitude: $0.point.longitude)
+            }
         }
         return WorkoutRouteData(
             coordinates: coordinateParts.flatMap { $0 },
             coordinateParts: coordinateParts,
-            elevationGainMetres: ElevationMath.gain(parts: orderedParts),
+            elevationGainMetres: ElevationMath.gain(parts: timeline.parts),
             path: path,
-            timestamps: samples.allSatisfy({ $0.timestamp.isFinite })
-                ? samples.map(\.timestamp)
+            timestamps: timeline.timestamps.allSatisfy(\.isFinite)
+                ? timeline.timestamps
                 : nil
         )
     }
