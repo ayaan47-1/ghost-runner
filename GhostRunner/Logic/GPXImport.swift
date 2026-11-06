@@ -4,6 +4,7 @@ public enum GPXParserError: Error, Equatable, LocalizedError, Sendable {
     case malformedXML
     case noTimedTrackPoints
     case noReplayableRoute
+    case fileTooLarge(maximumMegabytes: Int)
 
     public var errorDescription: String? {
         switch self {
@@ -13,6 +14,8 @@ public enum GPXParserError: Error, Equatable, LocalizedError, Sendable {
             return "This GPX file has no timed track points to replay."
         case .noReplayableRoute:
             return "This GPX file does not contain enough timed movement to replay."
+        case .fileTooLarge(let maximumMegabytes):
+            return "This GPX file is larger than the \(maximumMegabytes) MB import limit."
         }
     }
 }
@@ -153,6 +156,7 @@ public extension ImportedRun {
 }
 
 public actor ImportedRunStore {
+    public static let maximumImportBytes = 20 * 1_024 * 1_024
     public let directoryURL: URL
 
     public init(directoryURL: URL) {
@@ -179,6 +183,7 @@ public actor ImportedRunStore {
 
     @discardableResult
     public func importGPX(data: Data, sourceName: String) throws -> ImportedRun {
+        try validateImportSize(data.count)
         let parsed = try GPXParser.parse(data: data)
         let run = ImportedRun(parsed: parsed, sourceName: sourceName)
         guard run.routeTimeline.path.isPlayable, run.duration > 0 else {
@@ -199,6 +204,10 @@ public actor ImportedRunStore {
         defer {
             if hasSecurityScope { url.stopAccessingSecurityScopedResource() }
         }
+        let values = try url.resourceValues(forKeys: [.fileSizeKey])
+        if let fileSize = values.fileSize {
+            try validateImportSize(fileSize)
+        }
         return try importGPX(data: Data(contentsOf: url), sourceName: url.lastPathComponent)
     }
 
@@ -210,6 +219,12 @@ public actor ImportedRunStore {
 
     private func fileURL(id: UUID) -> URL {
         directoryURL.appendingPathComponent(id.uuidString.lowercased()).appendingPathExtension("json")
+    }
+
+    private func validateImportSize(_ byteCount: Int) throws {
+        guard byteCount <= Self.maximumImportBytes else {
+            throw GPXParserError.fileTooLarge(maximumMegabytes: 20)
+        }
     }
 }
 

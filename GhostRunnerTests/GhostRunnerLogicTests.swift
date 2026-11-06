@@ -883,4 +883,26 @@ final class GhostRunnerLogicTests: XCTestCase {
             XCTAssertEqual(error as? GPXParserError, .noReplayableRoute)
         }
     }
+
+    func testImportedRunStoreRejectsFilesOverTwentyMegabytesBeforeParsing() async {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = ImportedRunStore(directoryURL: directory)
+        let sourceURL = directory.appendingPathComponent("oversized.gpx")
+
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            XCTAssertTrue(FileManager.default.createFile(atPath: sourceURL.path, contents: nil))
+            let handle = try FileHandle(forWritingTo: sourceURL)
+            try handle.truncate(atOffset: UInt64(20 * 1_024 * 1_024 + 1))
+            try handle.close()
+
+            _ = try await store.importGPX(from: sourceURL)
+            XCTFail("Expected an oversized GPX file to be rejected")
+        } catch {
+            XCTAssertEqual(error as? GPXParserError, .fileTooLarge(maximumMegabytes: 20))
+            XCTAssertEqual(error.localizedDescription, "This GPX file is larger than the 20 MB import limit.")
+        }
+    }
 }
