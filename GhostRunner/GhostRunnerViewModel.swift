@@ -17,7 +17,9 @@ final class GhostRunnerViewModel {
     let playbackSpeeds = [1.0, 2.0, 5.0, 10.0]
 
     private(set) var recentRuns: [HKWorkout] = []
-    var selectedWorkout: HKWorkout?
+    private(set) var importedRuns: [ImportedRun] = []
+    private(set) var selectedWorkout: HKWorkout?
+    private(set) var selectedRun: ReplayRunSummary?
     private(set) var routeCoordinates: [CLLocationCoordinate2D] = []
     private(set) var routeCoordinateParts: [[CLLocationCoordinate2D]] = []
     private(set) var ghostCoordinate: CLLocationCoordinate2D?
@@ -35,8 +37,10 @@ final class GhostRunnerViewModel {
     private(set) var healthAccessState: HealthAccessState = .notRequested
     private(set) var selectedSplitIndex: Int?
     private(set) var routePresentationID: UInt64 = 0
+    var importErrorMessage: String?
 
     private let healthKitManager: HealthKitManager
+    private let importedRunStore: ImportedRunStore
     private var playbackTask: Task<Void, Never>?
     private var routeLoadTask: Task<WorkoutRouteData, Error>?
     private var routeLoadToken: UInt64 = 0
@@ -51,8 +55,28 @@ final class GhostRunnerViewModel {
     private var loadGeneration = LoadGeneration()
     private var routePresentationGeneration = LoadGeneration()
 
-    init(healthKitManager: HealthKitManager = HealthKitManager()) {
+    init(
+        healthKitManager: HealthKitManager = HealthKitManager(),
+        importedRunStore: ImportedRunStore = ImportedRunStore(
+            directoryURL: ImportedRunStore.defaultDirectoryURL
+        )
+    ) {
         self.healthKitManager = healthKitManager
+        self.importedRunStore = importedRunStore
+    }
+
+    var runs: [ReplayRunSummary] {
+        let healthRuns = recentRuns.map { workout in
+            ReplayRunSummary(
+                id: workout.uuid,
+                name: nil,
+                startDate: workout.startDate,
+                duration: workout.duration,
+                distanceMetres: workout.totalDistance?.doubleValue(for: .meter()) ?? 0,
+                source: .health
+            )
+        }
+        return (healthRuns + importedRuns.map(\.summary)).sorted { $0.startDate > $1.startDate }
     }
 
     var scrubberValue: Double {
@@ -70,13 +94,13 @@ final class GhostRunnerViewModel {
 
     var formattedDistance: String {
         RunFormatting.distance(
-            metres: selectedWorkout?.totalDistance?.doubleValue(for: .meter()) ?? 0,
+            metres: selectedRun?.distanceMetres ?? 0,
             units: unitPreference
         )
     }
 
     var formattedDuration: String {
-        RunFormatting.duration(seconds: selectedWorkout?.duration ?? 0)
+        RunFormatting.duration(seconds: selectedRun?.duration ?? 0)
     }
 
     var formattedPace: String {
@@ -108,12 +132,10 @@ final class GhostRunnerViewModel {
     }
 
     private var averageSecondsPerKilometre: Double? {
-        guard let workout = selectedWorkout,
-              let metres = workout.totalDistance?.doubleValue(for: .meter()),
-              metres > 0 else {
+        guard let run = selectedRun, run.distanceMetres > 0 else {
             return nil
         }
-        return workout.duration / (metres / 1_000)
+        return run.duration / (run.distanceMetres / 1_000)
     }
 
     var formattedElevationGain: String {
@@ -176,6 +198,7 @@ final class GhostRunnerViewModel {
         let generation = loadGeneration.begin()
         loadState = .loading
         healthAccessState = .checking
+        await reloadImportedRuns()
         do {
             try await healthKitManager.requestAuthorization()
             guard loadGeneration.isCurrent(generation) else { return }
@@ -185,6 +208,10 @@ final class GhostRunnerViewModel {
             recentRuns = runs
             healthAccessState = runs.isEmpty ? .requested : .workoutsAvailable
             guard let first = recentRuns.first else {
+                if let imported = importedRuns.first {
+                    present(importedRun: imported)
+                    return
+                }
                 loadState = .empty(
                     title: "No Readable Runs",
                     message: "No readable running workouts were found. Check Health access or record a run first."
@@ -213,7 +240,12 @@ final class GhostRunnerViewModel {
             }
 
             guard loadGeneration.isCurrent(generation) else { return }
+            if let imported = importedRuns.first {
+                present(importedRun: imported)
+                return
+            }
             selectedWorkout = first
+            selectedRun = summary(for: first)
             if let firstError {
                 loadState = .failed(firstError.localizedDescription)
             } else {
@@ -225,6 +257,10 @@ final class GhostRunnerViewModel {
         } catch {
             guard loadGeneration.isCurrent(generation) else { return }
             healthAccessState = .unavailable
+            if let imported = importedRuns.first {
+                present(importedRun: imported)
+                return
+            }
             loadState = .failed(error.localizedDescription)
         }
     }
@@ -233,6 +269,7 @@ final class GhostRunnerViewModel {
         let generation = loadGeneration.begin()
         stopPlayback()
         selectedWorkout = workout
+        selectedRun = summary(for: workout)
         routeCoordinates = []
         routeCoordinateParts = []
         routePath = RoutePath(points: [])
@@ -261,8 +298,55 @@ final class GhostRunnerViewModel {
     }
 
     func selectWorkout(id: UUID) async {
-        guard let workout = recentRuns.first(where: { $0.uuid == id }) else { return }
-        await selectWorkout(workout)
+        if let imported = importedRuns.first(where: { $0.id == id }) {
+            let generation = loadGeneration.begin()
+            routeLoadTask?.cancel()
+            stopPlayback()
+            guard loadGeneration.isCurrent(generation) else { return }
+            present(importedRun: imported)
+        } else if let workout = recentRuns.first(where: { $0.uuid == id }) {
+            await selectWorkout(workout)
+        }
+    }
+
+    @discardableResult
+    func importGPX(from url: URL) async -> Bool {
+        do {
+            let run = try await importedRunStore.importGPX(from: url)
+            await reloadImportedRuns()
+            _ = loadGeneration.begin()
+            routeLoadTask?.cancel()
+            stopPlayback()
+            present(importedRun: run)
+            importErrorMessage = nil
+            return true
+        } catch {
+            importErrorMessage = error.localizedDescription
+            return false
+        }
+    }
+
+    func deleteImportedRun(id: UUID) async {
+        do {
+            try await importedRunStore.delete(id: id)
+            await reloadImportedRuns()
+            if selectedRun?.id == id {
+                stopPlayback()
+                selectedRun = nil
+                selectedWorkout = nil
+                resetRoute()
+                if let next = runs.first {
+                    await selectWorkout(id: next.id)
+                } else {
+                    loadState = .empty(
+                        title: "No Runs Found",
+                        message: "Import a GPX file or allow Health access."
+                    )
+                }
+            }
+        } catch {
+            importErrorMessage = error.localizedDescription
+        }
     }
 
     func retry() async {
@@ -271,6 +355,7 @@ final class GhostRunnerViewModel {
         stopPlayback()
         recentRuns = []
         selectedWorkout = nil
+        selectedRun = nil
         routeCoordinates = []
         routeCoordinateParts = []
         routePath = RoutePath(points: [])
@@ -309,7 +394,7 @@ final class GhostRunnerViewModel {
     }
 
     private func startPlayback() {
-        let duration = selectedWorkout?.duration ?? 0
+        let duration = selectedRun?.duration ?? 0
         guard routePath.isPlayable,
               PlaybackMath.canStart(routeDistance: routePath.totalDistance, workoutDuration: duration) else { return }
         if playbackDistance >= routePath.totalDistance {
@@ -366,6 +451,47 @@ final class GhostRunnerViewModel {
 
     private func present(route: WorkoutRouteData, for workout: HKWorkout) {
         selectedWorkout = workout
+        selectedRun = summary(for: workout)
+        present(route: route)
+    }
+
+    private func present(importedRun: ImportedRun) {
+        let timeline = importedRun.routeTimeline
+        guard timeline.path.isPlayable, importedRun.duration > 0 else {
+            selectedWorkout = nil
+            selectedRun = importedRun.summary
+            resetRoute()
+            loadState = .empty(
+                title: "No Replayable Route",
+                message: "This GPX file does not contain enough timed movement to replay."
+            )
+            return
+        }
+        let parts = timeline.parts.map { part in
+            part.map { point in
+                CLLocationCoordinate2D(
+                    latitude: point.point.latitude,
+                    longitude: point.point.longitude
+                )
+            }
+        }
+        selectedWorkout = nil
+        selectedRun = importedRun.summary
+        present(route: WorkoutRouteData(
+            coordinates: timeline.samples.map { point in
+                CLLocationCoordinate2D(
+                    latitude: point.point.latitude,
+                    longitude: point.point.longitude
+                )
+            },
+            coordinateParts: parts,
+            elevationGainMetres: ElevationMath.gain(parts: timeline.parts),
+            path: timeline.path,
+            timestamps: timeline.timestamps
+        ))
+    }
+
+    private func present(route: WorkoutRouteData) {
         routeCoordinates = route.coordinates
         routeCoordinateParts = route.coordinateParts
         routePath = route.path
@@ -383,6 +509,37 @@ final class GhostRunnerViewModel {
         playbackSpeed = defaultPlaybackSpeed
         routePresentationID = routePresentationGeneration.begin()
         loadState = .ready
+    }
+
+    private func reloadImportedRuns() async {
+        do {
+            importedRuns = try await importedRunStore.load()
+        } catch {
+            importErrorMessage = "Saved GPX runs could not be loaded: \(error.localizedDescription)"
+        }
+    }
+
+    private func summary(for workout: HKWorkout) -> ReplayRunSummary {
+        ReplayRunSummary(
+            id: workout.uuid,
+            name: nil,
+            startDate: workout.startDate,
+            duration: workout.duration,
+            distanceMetres: workout.totalDistance?.doubleValue(for: .meter()) ?? 0,
+            source: .health
+        )
+    }
+
+    private func resetRoute() {
+        routeCoordinates = []
+        routeCoordinateParts = []
+        routePath = RoutePath(points: [])
+        routeTimestamps = nil
+        completedSplitCache = CompletedSplitCache(cumulativeDistances: [], timestamps: nil)
+        ghostCoordinate = nil
+        elevationGainMetres = nil
+        playbackDistance = 0
+        selectedSplitIndex = nil
     }
 
     private func fetchRouteDataCancellingPrevious(for workout: HKWorkout) async throws -> WorkoutRouteData {

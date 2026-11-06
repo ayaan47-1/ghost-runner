@@ -124,8 +124,8 @@ struct GhostRunnerMapView: View {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Ghost Runner").font(.headline)
-                    if let workout = viewModel.selectedWorkout {
-                        Text(workout.startDate, format: .dateTime.weekday(.wide).month().day())
+                    if let run = viewModel.selectedRun {
+                        Text(run.startDate, format: .dateTime.weekday(.wide).month().day())
                             .font(.subheadline)
                             .foregroundStyle(GhostRunnerPalette.inkSecondary)
                     } else {

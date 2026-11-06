@@ -6,6 +6,21 @@
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
 	<string>Ghost Runner</string>
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>GPX Route</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Owner</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>com.topografix.gpx</string>
+			</array>
+		</dict>
+	</array>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -24,6 +39,8 @@
 	<false/>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
 	<key>NSHealthShareUsageDescription</key>
 	<string>Ghost Runner reads your running workouts and routes to replay past runs on a map.</string>
 	<key>NSHealthUpdateUsageDescription</key>
@@ -35,6 +52,28 @@
 	</dict>
 	<key>UILaunchScreen</key>
 	<dict/>
+	<key>UTImportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.xml</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>GPS Exchange Format</string>
+			<key>UTTypeIdentifier</key>
+			<string>com.topografix.gpx</string>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>gpx</string>
+				</array>
+				<key>public.mime-type</key>
+				<string>application/gpx+xml</string>
+			</dict>
+		</dict>
+	</array>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>

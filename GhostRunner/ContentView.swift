@@ -27,13 +27,22 @@ struct ContentView: View {
                 .tag(AppTab.replay)
 
             RecentRunsView(
-                workouts: viewModel.recentRuns,
-                selectedWorkout: viewModel.selectedWorkout,
-                units: viewModel.unitPreference
-            ) { workoutID in
-                selectedTab = .replay
-                Task { await viewModel.selectWorkout(id: workoutID) }
-            }
+                runs: viewModel.runs,
+                selectedRunID: viewModel.selectedRun?.id,
+                units: viewModel.unitPreference,
+                onSelect: { runID in
+                    selectedTab = .replay
+                    Task { await viewModel.selectWorkout(id: runID) }
+                },
+                onImport: { url in
+                    Task {
+                        if await viewModel.importGPX(from: url) { selectedTab = .replay }
+                    }
+                },
+                onDelete: { runID in
+                    Task { await viewModel.deleteImportedRun(id: runID) }
+                }
+            )
             .reportTabContentFrame()
             .tabItem { Label("Runs", systemImage: "list.bullet") }
             .tag(AppTab.runs)
@@ -47,6 +56,18 @@ struct ContentView: View {
         }
         .tint(GhostRunnerPalette.actionBlue)
         .background(GhostRunnerPalette.canvas)
+        .onOpenURL { url in
+            Task {
+                if await viewModel.importGPX(from: url) {
+                    selectedTab = .replay
+                }
+            }
+        }
+        .alert("Couldn’t Import GPX", isPresented: importErrorPresentation) {
+            Button("OK", role: .cancel) { viewModel.importErrorMessage = nil }
+        } message: {
+            Text(viewModel.importErrorMessage ?? "The selected GPX file could not be imported.")
+        }
         .onPreferenceChange(TabContentFrameKey.self) { tabContentFrame = $0 }
         .tabBarDebugFrame(contentFrame: tabContentFrame, enabled: layoutDebugEnabled)
         .task(id: hasSeenWelcome) {
@@ -59,6 +80,15 @@ struct ContentView: View {
         .fullScreenCover(isPresented: welcomePresentation) {
             WelcomeGuideView(onFinish: completeWelcome)
         }
+    }
+
+    private var importErrorPresentation: Binding<Bool> {
+        Binding(
+            get: { viewModel.importErrorMessage != nil },
+            set: { presented in
+                if !presented { viewModel.importErrorMessage = nil }
+            }
+        )
     }
 
     private var layoutDebugEnabled: Bool {
@@ -80,7 +110,7 @@ struct ContentView: View {
                 }
             case .empty(let title, let message):
                 stateCard(systemImage: "map", title: title, message: message) {
-                    if !viewModel.recentRuns.isEmpty {
+                    if !viewModel.runs.isEmpty {
                         Button("Choose Another Run") { selectedTab = .runs }
                             .buttonStyle(.borderedProminent)
                     } else {
@@ -91,7 +121,7 @@ struct ContentView: View {
                 }
             case .failed(let message):
                 stateCard(systemImage: "heart.slash", title: "Runs Unavailable", message: message) {
-                    if !viewModel.recentRuns.isEmpty {
+                    if !viewModel.runs.isEmpty {
                         Button("Choose Another Run") { selectedTab = .runs }
                             .buttonStyle(.borderedProminent)
                     }

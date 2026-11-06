@@ -779,4 +779,108 @@ final class GhostRunnerLogicTests: XCTestCase {
         XCTAssertEqual(RunFormatting.elevationGain(metres: 123.4, units: .imperial), "405 ft")
         XCTAssertEqual(RunFormatting.elevationGain(metres: nil, units: .metric), "—")
     }
+
+    func testGPXParserReadsGarminTrackSegmentsTimesAndElevation() throws {
+        let data = Data("""
+        <?xml version="1.0" encoding="UTF-8"?>
+        <gpx version="1.1" creator="Garmin Connect" xmlns="http://www.topografix.com/GPX/1/1">
+          <trk><name>Morning Run</name>
+            <trkseg>
+              <trkpt lat="37.0000" lon="-122.0000"><ele>10.5</ele><time>2026-11-01T12:00:00Z</time></trkpt>
+              <trkpt lat="37.0000" lon="-121.9990"><time>2026-11-01T12:01:00Z</time></trkpt>
+            </trkseg>
+            <trkseg>
+              <trkpt lat="37.0010" lon="-121.9990"><ele>14</ele><time>2026-11-01T12:02:00Z</time></trkpt>
+              <trkpt lat="37.0010" lon="-121.9980"><ele>15</ele><time>2026-11-01T12:03:00Z</time></trkpt>
+            </trkseg>
+          </trk>
+        </gpx>
+        """.utf8)
+
+        let track = try GPXParser.parse(data: data)
+
+        XCTAssertEqual(track.name, "Morning Run")
+        XCTAssertEqual(track.segments.count, 2)
+        XCTAssertEqual(track.segments.map(\.count), [2, 2])
+        XCTAssertEqual(track.segments[0][0].elevationMetres, 10.5)
+        XCTAssertNil(track.segments[0][1].elevationMetres)
+        XCTAssertEqual(track.duration, 180)
+        XCTAssertGreaterThan(track.distanceMetres, 150)
+        XCTAssertLessThan(track.distanceMetres, 200)
+    }
+
+    func testGPXParserRejectsTrackPointsWithoutTime() {
+        let data = Data("""
+        <gpx version="1.1"><trk><trkseg>
+          <trkpt lat="37" lon="-122"><ele>10</ele></trkpt>
+        </trkseg></trk></gpx>
+        """.utf8)
+
+        XCTAssertThrowsError(try GPXParser.parse(data: data)) { error in
+            XCTAssertEqual(error as? GPXParserError, .noTimedTrackPoints)
+        }
+    }
+
+    func testGPXParserRejectsEmptyDocument() {
+        let data = Data("<gpx version=\"1.1\"></gpx>".utf8)
+
+        XCTAssertThrowsError(try GPXParser.parse(data: data)) { error in
+            XCTAssertEqual(error as? GPXParserError, .noTimedTrackPoints)
+        }
+    }
+
+    func testGPXParserRejectsMalformedXML() {
+        let data = Data("<gpx><trk><trkseg><trkpt lat=\"37\"".utf8)
+
+        XCTAssertThrowsError(try GPXParser.parse(data: data)) { error in
+            XCTAssertEqual(error as? GPXParserError, .malformedXML)
+        }
+    }
+
+    func testImportedRunStorePersistsListsAndDeletesGPX() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = ImportedRunStore(directoryURL: directory)
+        let data = Data("""
+        <gpx version="1.1"><trk><name>Garmin Run</name><trkseg>
+          <trkpt lat="37" lon="-122"><time>2026-11-01T12:00:00Z</time></trkpt>
+          <trkpt lat="37.001" lon="-122"><time>2026-11-01T12:05:00Z</time></trkpt>
+        </trkseg></trk></gpx>
+        """.utf8)
+
+        let imported = try await store.importGPX(data: data, sourceName: "garmin-export.gpx")
+        let reloaded = try await ImportedRunStore(directoryURL: directory).load()
+
+        XCTAssertEqual(reloaded, [imported])
+        XCTAssertEqual(imported.name, "Garmin Run")
+        XCTAssertEqual(imported.sourceName, "garmin-export.gpx")
+        XCTAssertEqual(imported.duration, 300)
+        XCTAssertTrue(imported.routeTimeline.path.isPlayable)
+        XCTAssertEqual(imported.routeTimeline.parts.count, 1)
+        XCTAssertEqual(imported.routeTimeline.path.totalDistance, imported.distanceMetres, accuracy: 0.001)
+        try await store.delete(id: imported.id)
+        let afterDelete = try await store.load()
+        XCTAssertTrue(afterDelete.isEmpty)
+    }
+
+    func testImportedRunStoreRejectsTimedRouteWithoutMovement() async {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = ImportedRunStore(directoryURL: directory)
+        let data = Data("""
+        <gpx version="1.1"><trk><trkseg>
+          <trkpt lat="37" lon="-122"><time>2026-11-01T12:00:00Z</time></trkpt>
+          <trkpt lat="37" lon="-122"><time>2026-11-01T12:05:00Z</time></trkpt>
+        </trkseg></trk></gpx>
+        """.utf8)
+
+        do {
+            _ = try await store.importGPX(data: data, sourceName: "stationary.gpx")
+            XCTFail("Expected a route without movement to be rejected")
+        } catch {
+            XCTAssertEqual(error as? GPXParserError, .noReplayableRoute)
+        }
+    }
 }

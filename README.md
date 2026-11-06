@@ -4,7 +4,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Replay an outdoor Apple Health run on a map and race the moving ghost from that route.
+Replay an outdoor Apple Health or imported GPX run on a map and race the moving ghost from that route.
 
 ## Features
 
@@ -12,6 +12,7 @@ Replay an outdoor Apple Health run on a map and race the moving ghost from that 
 - Play, pause, choose 1x, 2x, 5x, or 10x speed, drag the scrubber, and recenter the map.
 - View completed splits calculated from the route's observed timestamps when the data is available.
 - Choose runs in the Runs tab and manage local preferences and Health access in the Account tab.
+- Import Garmin and other timed GPX tracks from the Runs tab or the iOS Share sheet; imported runs stay on device and can be deleted from Runs.
 - Read the welcome guide on first launch or open it again from Account.
 - Choose automatic, metric, or imperial units and a default playback speed.
 - Use light and dark appearances, plus layouts that adapt to Dynamic Type accessibility sizes.
@@ -73,7 +74,7 @@ GhostRunner/
   GhostRunnerViewModel.swift
                             Health data loading and replay state
   HealthKitManager.swift    Read-only HealthKit queries
-  Logic/                    Route, playback, split, format, and layout logic
+  Logic/                    Route, playback, split, GPX, format, and layout logic
 GhostRunnerTests/           Logic tests
 GhostRunner.xcodeproj/      Xcode project and app target settings
 Package.swift               Swift Package Manager logic-test package
@@ -83,7 +84,7 @@ Package.swift               Swift Package Manager logic-test package
 
 Ghost Runner requests read-only HealthKit access. It reads running workouts and workout routes. It does not write Health data.
 
-The app has no network client. It keeps app preferences on the device and does not upload workout or route data.
+The app has no network client. It keeps app preferences and imported GPX runs on the device and does not upload workout or route data.
 
 ## License
 
